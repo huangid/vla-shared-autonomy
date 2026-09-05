@@ -77,7 +77,30 @@ def adm_ctrl_task_space(
     # in a single step, producing a Cartesian target far outside the reachable
     # workspace that IK then rejects — and the runaway state persists and only slowly
     # decays back down over the following steps, showing up as erratic motion.
-    MAX_LIN_VEL, MAX_ANG_VEL = 2.0, 8.0  # m/s, rad/s
+    #
+    # A single flat limit can't serve both regimes: free-motion transients need a high
+    # ceiling (see below) or normal teleop feels throttled, but that same high ceiling
+    # lets a real wall impact fling the arm violently. So gate on the sensed contact
+    # force instead — F_ext's linear part is a real contact-sensor reading (see
+    # xarm_env.py's eef_force), not an admittance-internal quantity, so it's a clean
+    # signal for "is this an actual collision." Held objects are light (<=1 kg, i.e.
+    # <=~10 N of handling force), so a threshold well above that isolates genuine hard
+    # contact from normal pick/place forces.
+    #
+    # Free-motion ceiling: peak transient speed for a critically-damped step response
+    # is ~error * omega_n, omega_n = sqrt(K/M); with the upper end of the randomized
+    # gain ranges (Kx<=210, mx>=0.11875 -> omega_n~42 rad/s; Kr<=105, mr>=0.01425 ->
+    # omega_n~86 rad/s), even a fairly large single-step command (~15 cm / ~0.3 rad,
+    # matching the SpaceMouse pilot's pos_scale/rot_scale) peaks around 6.3 m/s /
+    # 26 rad/s — so 8.0/30.0 leaves headroom over normal use.
+    F_CONTACT_THRESH = 15.0  # N — well above normal <1 kg object handling forces
+    MAX_LIN_VEL_FREE, MAX_ANG_VEL_FREE = 8.0, 30.0        # m/s, rad/s
+    MAX_LIN_VEL_CONTACT, MAX_ANG_VEL_CONTACT = 0.5, 2.0   # m/s, rad/s
+
+    in_contact = (F_ext[:, :3].norm(dim=1, keepdim=True) > F_CONTACT_THRESH).float()  # (B,1)
+    MAX_LIN_VEL = MAX_LIN_VEL_FREE * (1.0 - in_contact) + MAX_LIN_VEL_CONTACT * in_contact
+    MAX_ANG_VEL = MAX_ANG_VEL_FREE * (1.0 - in_contact) + MAX_ANG_VEL_CONTACT * in_contact
+
     lin_speed = v[:, :3].norm(dim=1, keepdim=True).clamp(min=1e-8)
     v[:, :3] = v[:, :3] * (lin_speed.clamp(max=MAX_LIN_VEL) / lin_speed)
     ang_speed = v[:, 3:].norm(dim=1, keepdim=True).clamp(min=1e-8)

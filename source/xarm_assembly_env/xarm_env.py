@@ -959,6 +959,19 @@ class XArmEnv(DirectRLEnv):
         init_fingertip = self.initial_poses[env_ids, self.episode_idx[env_ids], :7]
         sim_eef = init_fingertip.clone()
         sim_eef[:, :2] += translation_noise
+        if self.cfg_task.name == "three_blocks":
+            # Center the starting fingertip pose over the bin/blocks midline instead of
+            # the recorded demos' start — every recorded episode starts at y~0.075,
+            # offset toward the y=+0.15 block rather than centered between the bin
+            # (y=0) and the blocks (y in {-0.15, 0, 0.15}). x is the midpoint between
+            # the blocks (x=0.4) and the bin (x=0.6). Keep the demo's z.
+            sim_eef[:, 0] = 0.5
+            sim_eef[:, 1] = 0.0
+            # Also straighten the recorded starting orientation: every demo set (three
+            # independent recordings) starts at ~180 deg about x plus a consistent
+            # ~10-20 deg extra tilt, rather than a clean straight-down pose — snap to a
+            # clean 180 deg-about-x quaternion instead.
+            sim_eef[:, 3:7] = torch.tensor([0.0, 1.0, 0.0, 0.0], device=self.device).expand(sim_eef.shape[0], -1)
         sim_eef[:, 3:7] = torch_utils.quat_mul(sim_eef[:, 3:7], yaw_delta_quat)
         sim_eef[:, 0:3] = torch_utils.tf_combine(
             sim_eef[:, 3:7], sim_eef[:, 0:3], identity_quat, -self.sim_fingertip2eef[env_ids],

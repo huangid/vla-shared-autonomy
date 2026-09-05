@@ -317,13 +317,16 @@ class ThreeBlocks(AssemblyTask):
     )
 
     # Reverted to the original solid bin (matching the geometry threeblocks_seq_demos.npy
-    # was actually recorded against) — the hollow walled version kept causing collisions
-    # between the recorded/replayed pilot trajectories and wall geometry that didn't exist
-    # at record time. Re-introduce walls only alongside a re-recorded demo set.
+    # was actually recorded against) — the hollow walled version kept causing erratic
+    # arm motion on wall contact, even after tuning the admittance velocity clamp
+    # (raised ceiling for free motion + force-gated tight clamp on contact spikes) —
+    # the instability is deeper than a velocity cap, likely the contact response itself
+    # against thin kinematic walls. Re-introduce walls only alongside a real fix to that
+    # (e.g. softened wall collision stiffness) plus a re-recorded demo set.
     fixed_asset: RigidObjectCfg = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Bin",
         spawn=sim_utils.CuboidCfg(
-            size=(0.12, 0.12, 0.04),
+            size=(0.12, 0.12, 0.03),
             rigid_props=_default_rigid_props(),
             mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
             collision_props=_default_collision_props(),
