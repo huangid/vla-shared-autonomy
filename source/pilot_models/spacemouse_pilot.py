@@ -42,13 +42,13 @@ class SpaceMousePilot:
                 rid = data[0]
                 if rid == 1 and len(data) >= 7:
                     x = -_to_int16(data[1], data[2]) / 350.0
-                    y = _to_int16(data[3], data[4]) / 350.0
+                    y = -_to_int16(data[3], data[4]) / 350.0
                     z = -_to_int16(data[5], data[6]) / 350.0
                     with self._lock:
                         self._pos = np.array([x, y, z])
                 elif rid == 2 and len(data) >= 7:
                     rx = -_to_int16(data[1], data[2]) / 350.0
-                    ry = _to_int16(data[3], data[4]) / 350.0
+                    ry = -_to_int16(data[3], data[4]) / 350.0
                     rz = -_to_int16(data[5], data[6]) / 350.0
                     with self._lock:
                         self._rot = np.array([rx, ry, rz])
@@ -93,10 +93,7 @@ class SpaceMousePilot:
         dq = Rotation.from_rotvec(drot_arr).as_quat()
         dq = torch.tensor([dq[3], dq[0], dq[1], dq[2]],
                           dtype=torch.float32, device=self._device)
-        # Apply the SpaceMouse rotation delta in the end-effector's local (tool)
-        # frame -> right-multiply. The gripper points downward in these tasks, so
-        # a world-frame (left-multiply) delta makes twist/tilt feel inverted.
-        new_quat = self._quat_mul(quat, dq.unsqueeze(0).expand(N, -1))
+        new_quat = self._quat_mul(dq.unsqueeze(0).expand(N, -1), quat)
         new_quat = new_quat / new_quat.norm(dim=-1, keepdim=True).clamp_min(1e-8)
 
         new_grip = torch.full((N, 1), gval, dtype=torch.float32, device=self._device)
