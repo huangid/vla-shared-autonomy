@@ -13,8 +13,9 @@ from . import agents
 
 from .xarm_env_cfg import (
     XArmGearMeshCfg, XArmGearMeshIntentCfg, XArmNutThreadCfg, XArmPegInsertCfg, XArmThreeBlocksCfg,
+    XArmRandomBlockCfg,
     XArmGearMeshGuidedDiffusionCfg, XArmNutThreadGuidedDiffusionCfg, XArmPegInsertGuidedDiffusionCfg,
-    XArmThreeBlocksGuidedDiffusionCfg,
+    XArmThreeBlocksGuidedDiffusionCfg, XArmRandomBlockGuidedDiffusionCfg,
 )
 
 """
@@ -47,6 +48,16 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": XArmThreeBlocksCfg,
+        "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="XArm-RandomBlock-Residual",
+    entry_point=f"{__name__}.xarm_env:XArmEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": XArmRandomBlockCfg,
         "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_cfg.yaml",
     },
 )
@@ -111,6 +122,16 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": XArmThreeBlocksGuidedDiffusionCfg,
+        "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="XArm-RandomBlock-GuidedDiffusion",
+    entry_point=f"{__name__}.xarm_env_guided_diffusion:XArmEnvGuidedDiffusion",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": XArmRandomBlockGuidedDiffusionCfg,
         "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_cfg.yaml",
     },
 )

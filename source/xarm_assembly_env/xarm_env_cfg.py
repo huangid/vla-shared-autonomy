@@ -10,7 +10,9 @@ from isaaclab.utils import configclass
 from isaaclab.markers import VisualizationMarkersCfg
 from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR, ISAAC_NUCLEUS_DIR
 
-from .assembly_tasks_cfg import AssemblyTask, GearMesh, GearMeshIntent, NutThread, PegInsert, ThreeBlocks, HF_ASSETS_REPO
+from .assembly_tasks_cfg import (
+    AssemblyTask, GearMesh, GearMeshIntent, NutThread, PegInsert, ThreeBlocks, RandomBlock, HF_ASSETS_REPO,
+)
 from ..utils.utils import resolve_hf
 
 OBS_DIM_CFG = {
@@ -303,6 +305,12 @@ class XArmThreeBlocksCfg(XArmEnvCfg):
     episode_length_s = 60.0
 
 @configclass
+class XArmRandomBlockCfg(XArmThreeBlocksCfg):
+    task_name = "random_block"
+    task = RandomBlock()
+    episode_length_s = 60.0
+
+@configclass
 class XArmNutThreadCfg(XArmEnvCfg):
     task_name = "nut_thread"
     task = NutThread()
@@ -328,4 +336,9 @@ class XArmNutThreadGuidedDiffusionCfg(XArmNutThreadCfg):
 
 @configclass
 class XArmThreeBlocksGuidedDiffusionCfg(XArmThreeBlocksCfg):
+    action_space: int = 8
+
+
+@configclass
+class XArmRandomBlockGuidedDiffusionCfg(XArmRandomBlockCfg):
     action_space: int = 8

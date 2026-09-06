@@ -67,6 +67,11 @@ class AssemblyTask:
     fixed_asset_cfg: FixedAssetCfg = FixedAssetCfg()
     held_asset_cfg: HeldAssetCfg = HeldAssetCfg()
 
+    # Per-episode object-pose randomization. When False, tasks place their assets
+    # at fixed poses on reset. Subclasses that set this True must also provide the
+    # spawn-range fields their reset path reads (see RandomBlock).
+    randomize_positions: bool = False
+
     success_threshold: float = 0.5
 
     # gripper clamp values
@@ -323,11 +328,20 @@ class ThreeBlocks(AssemblyTask):
     # the instability is deeper than a velocity cap, likely the contact response itself
     # against thin kinematic walls. Re-introduce walls only alongside a real fix to that
     # (e.g. softened wall collision stiffness) plus a re-recorded demo set.
+    #
+    # The bin is kinematic (kinematic_enabled=True): it is a placement target, not an
+    # object to manipulate, so it must never be pushed by the arm or by dropped blocks.
     fixed_asset: RigidObjectCfg = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Bin",
         spawn=sim_utils.CuboidCfg(
             size=(0.12, 0.12, 0.03),
-            rigid_props=_default_rigid_props(),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=True,
+                disable_gravity=True,
+                max_depenetration_velocity=5.0,
+                solver_position_iteration_count=192,
+                solver_velocity_iteration_count=1,
+            ),
             mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
             collision_props=_default_collision_props(),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.4, 0.4, 0.4)),
@@ -343,6 +357,53 @@ class ThreeBlocks(AssemblyTask):
         history_length=6,
         debug_vis=False,
     )
+
+
+@configclass
+class RandomBlock(ThreeBlocks):
+    """ThreeBlocks with per-episode randomized block positions and a fixed bin.
+
+    This is the base task for the VLA shared-autonomy study. It reuses the
+    ThreeBlocks scene, success check, and termination logic (``name`` stays
+    ``"three_blocks"``), but the three block xy positions are resampled
+    uniformly over a rectangular region on every reset by
+    ``XArmEnv._sample_block_layout`` instead of being hard-coded to a fixed row.
+    A policy therefore cannot memorize one trajectory and has to localize the
+    blocks from observation.
+
+    The bin is **not** randomized: it spawns at ``bin_pos`` every episode and is
+    kinematic (immovable — it never drifts under contact). To build the
+    "challenging task" held-out variation, widen ``block_x_range`` /
+    ``block_y_range`` or point the train and eval configs at disjoint
+    sub-regions.
+    """
+
+    name = "three_blocks"  # reuse three_blocks env branching
+    randomize_positions: bool = True
+
+    # Single-target pick: each episode names one block colour ("pick up the <colour>
+    # block and put it in the bin"); the other two are distractors that must stay
+    # out of the bin. Colour index maps to block A / B / C = red / green / blue.
+    single_target: bool = True
+    target_colors: tuple = ("red", "green", "blue")
+    # Which colour indices episodes may target. Restrict this (e.g. (0, 1)) to hold a
+    # colour out for the "challenging task" eval set.
+    allowed_target_idx: tuple = (0, 1, 2)
+    instruction_template: str = "pick up the {color} block and put it in the bin"
+
+    # Block spawn region: xy sampled uniformly in this rectangle, rejection-resampled
+    # so no two blocks are within `block_min_separation` and no block lands within
+    # `bin_clearance` of the bin centre.
+    block_x_range: tuple = (0.34, 0.52)
+    block_y_range: tuple = (-0.18, 0.18)
+    block_min_separation: float = 0.06
+    bin_clearance: float = 0.11
+    block_spawn_z: float = 0.05
+
+    # Fixed bin pose, pinned every reset. The bin geometry (kinematic, immovable)
+    # is inherited from ThreeBlocks.fixed_asset.
+    bin_pos: tuple = (0.62, 0.0, 0.0025)
+
 
 @configclass
 class GearMeshIntent(GearMesh):

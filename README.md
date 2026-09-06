@@ -20,6 +20,7 @@
   - [Training Guided Diffusion Copilot](#training-guided-diffusion-copilot)
   - [Adding New Tasks and Models](#adding-new-tasks-and-models)
 - [Three Blocks: SpaceMouse Teleop Workflow](#three-blocks-spacemouse-teleop-workflow)
+- [RandomBlock: Randomized Block/Bin Task](#randomblock-randomized-blockbin-task)
 - [HuggingFace Collection](#huggingface-collection)
 
 ## Installation
@@ -232,6 +233,8 @@ The `dataset_path` can be a HuggingFace dataset ID or a locally collected datase
 
 `ThreeBlocks` is a multi-goal block-sorting task (pick up to 3 blocks into a bin) driven live by a physical [SpaceMouse](https://3dconnexion.com/) via `SpaceMousePilot`, rather than pre-recorded teleop/expert `.npy` data. This is the end-to-end loop for collecting demos, converting them to the kNN dataset format, and training a residual copilot on top.
 
+The bin is kinematic (`kinematic_enabled=True` in `ThreeBlocks.fixed_asset`) — a placement target that is never pushed by the arm or by dropped blocks.
+
 **1. Drive the task by hand** (sanity-check the SpaceMouse connection and controls):
 
 ```bash
@@ -289,6 +292,138 @@ python scripts/play.py \
   --task ThreeBlocks --pilot SpaceMousePilot --copilot DiSCo --num_envs 1 \
   --checkpoint outputs/train/threeblocks_expert_50_bc_expert/checkpoints/060000/pretrained_model
 ```
+
+## RandomBlock: Randomized Block/Bin Task
+
+`RandomBlock` is the base task for the VLA shared-autonomy study. It reuses the
+`ThreeBlocks` scene but changes two things:
+
+- **Randomized block positions.** The three block xy positions are resampled
+  uniformly over a rectangle every reset (per-env), so a policy cannot memorize
+  one trajectory and has to localize the blocks from observation.
+- **Single-target, language-conditioned pick.** Each episode names one block
+  colour — `"pick up the {color} block and put it in the bin"` — and the other
+  two are distractors. **Success = the instructed block is in the bin and no
+  distractor is.** The target colour cycles round-robin per env (balanced data);
+  the instruction string is on `env.unwrapped.instructions[env_id]`, printed at
+  reset for small runs, and saved into `meta/stats.json` by `--record`.
+
+The **bin is not randomized**: it is pinned to a constant pose (`bin_pos`, default
+`(0.62, 0.0, 0.0025)`) every episode. The bin geometry is kinematic (inherited
+from `ThreeBlocks.fixed_asset`) so it never moves under gravity or contact.
+
+Registered environments:
+
+| Gym id | Action space | Use |
+|--------|--------------|-----|
+| `XArm-RandomBlock-Residual` | 7D residual | pilot + residual-RL copilot stack (kNN / SpaceMouse / BC) |
+| `XArm-RandomBlock-GuidedDiffusion` | 8D absolute | absolute-action policies (guided diffusion; SmolVLA integration) |
+
+**Randomization knobs** — `RandomBlock` in `source/xarm_assembly_env/assembly_tasks_cfg.py`:
+
+| Field | Default | Meaning |
+|-------|---------|---------|
+| `randomize_positions` | `True` | master switch for block-position randomization |
+| `block_x_range` | `(0.34, 0.52)` | x-range each block is sampled from |
+| `block_y_range` | `(-0.18, 0.18)` | y-range each block is sampled from |
+| `block_min_separation` | `0.06` | min centre-to-centre distance between blocks (rejection-resampled) |
+| `bin_clearance` | `0.11` | min distance a block may spawn from the bin centre |
+| `bin_pos` | `(0.62, 0.0, 0.0025)` | fixed bin pose — never resampled; the bin is kinematic |
+| `single_target` | `True` | one instructed block per episode; the rest are distractors |
+| `target_colors` | `("red", "green", "blue")` | colour name per block index (A/B/C) |
+| `allowed_target_idx` | `(0, 1, 2)` | which colours episodes may target — restrict (e.g. `(0, 1)`) to hold a colour out for the challenge eval set |
+| `instruction_template` | `"pick up the {color} block and put it in the bin"` | instruction string format |
+
+Block sampling happens in `XArmEnv._sample_block_layout()` (uniform over the
+rectangle, rejection-resampled for separation + bin clearance). To build the
+"challenging task" held-out variation, subclass `RandomBlock` with disjoint (or
+wider) ranges and register a new cfg the same way `XArmRandomBlockCfg` is
+registered.
+
+**1. Drive the task by hand** (visual sanity-check that the blocks land in new
+positions each episode):
+
+```bash
+python scripts/play.py --task RandomBlock --pilot SpaceMousePilot --num_envs 1
+```
+
+> Block positions resample on every reset (and per-env), but the RNG is seeded.
+> `play.py` now draws a fresh random seed each run and prints it — pass
+> `--seed <int>` to reproduce a specific layout. With a fixed seed, episode 0 is
+> identical every run; let the run continue past the first episode to see the
+> positions change.
+
+**2. Record demos.** `--record` enables the front camera and writes RGB frames +
+robot state per timestep, plus the per-episode instruction into `meta/stats.json`.
+Each reset prints the instruction (`[RandomBlock] env 0: pick up the green block …`)
+— read it and teleop that block into the bin. The episode ends on success.
+
+```bash
+python scripts/play.py --task RandomBlock --pilot SpaceMousePilot --num_envs 1 --record
+```
+
+**3. Append the recording to a dataset:**
+
+```bash
+python scripts/convert_demos.py \
+  --rollout_dir logs/rollouts/eval_RandomBlock_with_SpaceMousePilot \
+  --output logs/data/randomblock_demos.npy --append
+```
+
+This writes `randomblock_demos.npy` (kNN-format trajectories) plus a sidecar
+`randomblock_demos.npy.tasks.json` — `{npy_idx: {task, source, episode}}`, kept
+out of the `.npy` because the kNN loader tensorizes every key in an episode dict.
+The sidecar carries each episode's instruction and points at the rollout dir its
+RGB frames live in.
+
+**4. Build the SmolVLA dataset** (images + per-episode `task` string):
+
+```bash
+python scripts/npy_to_lerobot.py \
+  --input logs/data/randomblock_demos.npy \
+  --repo_id <hf_user>/randomblock_vla --images
+```
+
+`--images` reads the sidecar, attaches `observation.images.front` from the
+recorded frames, and uses the per-episode instruction as the `task` (it also
+drops `observation.environment_state` — the VLA grounds spatial relations from
+pixels + language). Drop `--images` (and pass `--task "..."`) for a state-only
+DiffusionPolicy dataset. Add `--push_to_hub` to upload, or `--root <dir>` to keep
+it local. Guidance from the SmolVLA paper: ~50 demos per variation was enough,
+25 was not — so budget **~30 demos per colour** (~90 total), more if eval is weak.
+
+**5. Finetune SmolVLA** on that dataset (LeRobot's built-in trainer, no custom script):
+
+```bash
+lerobot-train \
+  --policy.path=lerobot/smolvla_base \
+  --dataset.repo_id=<hf_user>/randomblock_vla \
+  --batch_size=64 --steps=20000 \
+  --output_dir=outputs/train/rb_smolvla --job_name=rb_smolvla \
+  --policy.device=cuda
+```
+
+For a local (un-pushed) dataset add `--dataset.root=<path>`. ~20k steps ≈ 4 h on
+one A100; the RTX 5090 is comparable. Checkpoints land in
+`outputs/train/rb_smolvla/checkpoints/`.
+
+**6. Evaluate** — N fresh episodes, no human, SmolVLA driving:
+
+```bash
+python scripts/eval_smolvla.py \
+  --checkpoint outputs/train/rb_smolvla/checkpoints/last/pretrained_model \
+  --num_episodes 30
+```
+
+Feeds the front-camera RGB + 14D state + instruction to SmolVLA each step, runs
+its 8D absolute action through `XArm-RandomBlock-GuidedDiffusion`, and prints the
+overall + per-colour success rate. That number is the step-1 result.
+
+---
+
+*Not the VLA path:* `python scripts/train.py --task XArm-RandomBlock-Residual --pilot kNNPilot --num_envs 128 --headless`
+trains the original state-based residual-RL copilot. Unrelated to the SmolVLA
+study — kept only for the residual-copilot framework.
 
 ## HuggingFace Collection
 

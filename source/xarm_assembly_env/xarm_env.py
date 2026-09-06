@@ -182,6 +182,20 @@ class XArmEnv(DirectRLEnv):
         self.ema_alpha = 0.002  # ~350 ep half-life for 450-ts episodes
 
         self.blocks_binned = torch.zeros((self.num_envs, 3), dtype=torch.bool, device=self.device)
+
+        # Per-episode block xy for the random_block task (filled in _sample_block_layout).
+        if self.cfg_task.name == "three_blocks":
+            self.rb_block_xy = torch.zeros((self.num_envs, 3, 2), device=self.device)
+
+        # Single-target pick: which block colour each env is picking this episode,
+        # and the natural-language instruction string that goes with it.
+        if getattr(self.cfg_task, "single_target", False):
+            allowed = torch.tensor(self.cfg_task.allowed_target_idx, device=self.device)
+            self._allowed_target_idx = allowed
+            self.target_block_idx = allowed[
+                torch.randint(0, len(allowed), (self.num_envs,), device=self.device)
+            ]
+            self.instructions = ["" for _ in range(self.num_envs)]
         self.residual_actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device)
         self.prev_actions = torch.zeros_like(self.residual_actions)
         self.env_actions = torch.zeros((self.num_envs, 8), device=self.device)
@@ -451,12 +465,16 @@ class XArmEnv(DirectRLEnv):
             bin_z = bin_pos[:, None, 2]
             self.blocks_binned = (block_xy_dist < 0.05) & (block_z < bin_z + 0.05)
 
-            dists = torch.norm(self.fingertip_midpoint_pos.unsqueeze(1) - positions, dim=2)  # (N,3)
-            # Exclude already-binned blocks from selection so we target the next one.
-            if hasattr(self, "blocks_binned"):
-                dists = dists.masked_fill(self.blocks_binned, 1e6)
-            idx = torch.argmin(dists, dim=1)                               # (N,)
             ar = torch.arange(self.num_envs, device=self.device)
+            if getattr(self.cfg_task, "single_target", False):
+                # Single-target task: the "held" block is the instructed colour.
+                idx = self.target_block_idx
+            else:
+                # Multi-goal: target the nearest not-yet-binned block.
+                dists = torch.norm(self.fingertip_midpoint_pos.unsqueeze(1) - positions, dim=2)  # (N,3)
+                if hasattr(self, "blocks_binned"):
+                    dists = dists.masked_fill(self.blocks_binned, 1e6)
+                idx = torch.argmin(dists, dim=1)                           # (N,)
             self.held_pos = positions[ar, idx]
             self.held_quat = quats[ar, idx]
         else:
@@ -711,7 +729,15 @@ class XArmEnv(DirectRLEnv):
             assembly_error = torch.linalg.vector_norm(held_pos - target_pos, dim=1)
 
         if self.cfg_task.name == "three_blocks" and hasattr(self, "blocks_binned"):
-            assembled = self.blocks_binned.all(dim=1)
+            if getattr(self.cfg_task, "single_target", False):
+                ar = torch.arange(self.num_envs, device=self.device)
+                target_binned = self.blocks_binned[ar, self.target_block_idx]
+                others = self.blocks_binned.clone()
+                others[ar, self.target_block_idx] = False
+                # Success = the instructed block is in the bin and no distractor is.
+                assembled = target_binned & ~others.any(dim=1)
+            else:
+                assembled = self.blocks_binned.all(dim=1)
 
         return assembled, assembly_error
 
@@ -839,6 +865,12 @@ class XArmEnv(DirectRLEnv):
         """Reset given environments."""
         super()._reset_idx(env_ids)
 
+        if getattr(self.cfg_task, "randomize_positions", False):
+            self._sample_block_layout(env_ids)
+
+        if getattr(self.cfg_task, "single_target", False):
+            self._sample_target(env_ids)
+
         if self.cfg.vis.store_rgb:
             self.front_camera.reset(env_ids=env_ids)
 
@@ -851,6 +883,65 @@ class XArmEnv(DirectRLEnv):
         )
         self._reset_robot_pose(env_ids, translation_noise, yaw_delta_quat, identity_quat)
         self._reset_pilot_and_buffers(env_ids, identity_quat, fixed_tip_pos_local)
+
+    def _sample_block_layout(self, env_ids):
+        """Sample per-episode xy for the 3 blocks (random_block task).
+
+        Each block xy is drawn uniformly from the rectangle
+        ``block_x_range`` x ``block_y_range``. Positions are rejection-resampled
+        so that no two blocks are closer than ``block_min_separation`` and no
+        block lands within ``bin_clearance`` of the (fixed) bin centre. The bin
+        itself is never randomized — see ``RandomBlock.bin_pos``.
+        """
+        n = len(env_ids)
+        t = self.cfg_task
+        dev = self.device
+
+        lo = torch.tensor([t.block_x_range[0], t.block_y_range[0]], device=dev)
+        span = torch.tensor(
+            [t.block_x_range[1] - t.block_x_range[0], t.block_y_range[1] - t.block_y_range[0]],
+            device=dev,
+        )
+        bin_xy = torch.tensor(t.bin_pos[:2], device=dev)
+
+        pos = torch.zeros(n, 3, 2, device=dev)
+        for i in range(3):
+            cand = lo + span * torch.rand(n, 2, device=dev)
+            for _ in range(50):
+                bad = torch.linalg.vector_norm(cand - bin_xy, dim=-1) < t.bin_clearance
+                if i > 0:
+                    d = torch.linalg.vector_norm(pos[:, :i] - cand[:, None, :], dim=-1)  # (n, i)
+                    bad |= (d < t.block_min_separation).any(dim=1)
+                if not bad.any():
+                    break
+                cand[bad] = lo + span * torch.rand(int(bad.sum()), 2, device=dev)
+            pos[:, i] = cand
+
+        self.rb_block_xy[env_ids] = pos
+
+    def _sample_target(self, env_ids):
+        """Pick this episode's target block colour (single_target task).
+
+        Cycles each env round-robin through ``allowed_target_idx`` for balanced
+        data, builds the instruction string, and prints it for small runs
+        (teleop / eval).
+        """
+        allowed = self._allowed_target_idx                       # (k,)
+        cur = self.target_block_idx[env_ids]                     # (n,)
+        match = cur.unsqueeze(1) == allowed.unsqueeze(0)         # (n, k)
+        pos = torch.where(match.any(dim=1), torch.argmax(match.long(), dim=1),
+                          torch.zeros(len(env_ids), dtype=torch.long, device=self.device))
+        nxt = allowed[(pos + 1) % len(allowed)]
+        self.target_block_idx[env_ids] = nxt
+
+        colors = self.cfg_task.target_colors
+        tmpl = self.cfg_task.instruction_template
+        ids = env_ids.tolist()
+        for i, e in enumerate(ids):
+            self.instructions[e] = tmpl.format(color=colors[int(nxt[i].item())])
+        if self.num_envs <= 8:
+            for e in ids:
+                print(f"[RandomBlock] env {e}: {self.instructions[e]}", flush=True)
 
     def _reset_dmr_params(self, env_ids):
         """Randomize admittance control parameters and advance episode index."""
@@ -917,9 +1008,14 @@ class XArmEnv(DirectRLEnv):
         )[1]
         held_pos[:, :2] += translation_noise
         if self.cfg_task.name == "three_blocks":
-            held_pos[:, 0] = 0.40      # red block x
-            held_pos[:, 1] = -0.15    # red block y
-            held_pos[:, 2] = 0.05     # on table
+            if getattr(self.cfg_task, "randomize_positions", False):
+                held_pos[:, 0] = self.rb_block_xy[env_ids, 0, 0]  # block A (held) x
+                held_pos[:, 1] = self.rb_block_xy[env_ids, 0, 1]  # block A (held) y
+                held_pos[:, 2] = self.cfg_task.block_spawn_z
+            else:
+                held_pos[:, 0] = 0.40      # red block x
+                held_pos[:, 1] = -0.15    # red block y
+                held_pos[:, 2] = 0.05     # on table
         held_quat = torch_utils.quat_mul(identity_quat, yaw_delta_quat)
 
         # Fixed asset pose.
@@ -940,9 +1036,16 @@ class XArmEnv(DirectRLEnv):
         fixed_pos[:, :2] += translation_noise
         fixed_pos[:, 2] += fixed_height_noise
         if self.cfg_task.name == "three_blocks":
-            fixed_pos[:, 0] = 0.6
-            fixed_pos[:, 1] = 0.0
-            fixed_pos[:, 2] = 0.0025
+            if getattr(self.cfg_task, "randomize_positions", False):
+                # Bin is fixed and kinematic — pin it to the configured pose every reset.
+                bp = self.cfg_task.bin_pos
+                fixed_pos[:, 0] = bp[0]
+                fixed_pos[:, 1] = bp[1]
+                fixed_pos[:, 2] = bp[2]
+            else:
+                fixed_pos[:, 0] = 0.6
+                fixed_pos[:, 1] = 0.0
+                fixed_pos[:, 2] = 0.0025
         fixed_quat = torch_utils.quat_mul(identity_quat, yaw_delta_quat)
 
         self._set_assets_state(
@@ -964,7 +1067,9 @@ class XArmEnv(DirectRLEnv):
             # the recorded demos' start — every recorded episode starts at y~0.075,
             # offset toward the y=+0.15 block rather than centered between the bin
             # (y=0) and the blocks (y in {-0.15, 0, 0.15}). x is the midpoint between
-            # the blocks (x=0.4) and the bin (x=0.6). Keep the demo's z.
+            # the blocks (x=0.4) and the bin (x=0.6). Keep the demo's z. This fixed
+            # start is also kept for random_block: the objects move each episode, so
+            # the policy must find them from observation rather than a primed pose.
             sim_eef[:, 0] = 0.5
             sim_eef[:, 1] = 0.0
             # Also straighten the recorded starting orientation: every demo set (three
@@ -1045,14 +1150,19 @@ class XArmEnv(DirectRLEnv):
                 gear_asset.reset(env_ids=env_ids)
 
         if self.cfg_task.name == "three_blocks":
-            block_positions = [(0.4, -0.15), (0.4, 0.0), (0.4, 0.15)]  # (x, y) row
-            for block, (bx, by) in zip(
-                (self._block_b, self._block_c), block_positions[1:]
-            ):
+            randomize = getattr(self.cfg_task, "randomize_positions", False)
+            block_z = self.cfg_task.block_spawn_z if randomize else 0.05
+            # (x, y) for block B and block C — block A is the held asset, placed below.
+            default_bc = [(0.4, 0.0), (0.4, 0.15)]
+            for i, block in enumerate((self._block_b, self._block_c)):
                 bstate = block.data.default_root_state.clone()[env_ids]
-                bstate[:, 0] = bx + self.scene.env_origins[env_ids][:, 0]
-                bstate[:, 1] = by + self.scene.env_origins[env_ids][:, 1]
-                bstate[:, 2] = 0.05 + self.scene.env_origins[env_ids][:, 2]
+                if randomize:
+                    bstate[:, 0] = self.rb_block_xy[env_ids, i + 1, 0] + self.scene.env_origins[env_ids][:, 0]
+                    bstate[:, 1] = self.rb_block_xy[env_ids, i + 1, 1] + self.scene.env_origins[env_ids][:, 1]
+                else:
+                    bstate[:, 0] = default_bc[i][0] + self.scene.env_origins[env_ids][:, 0]
+                    bstate[:, 1] = default_bc[i][1] + self.scene.env_origins[env_ids][:, 1]
+                bstate[:, 2] = block_z + self.scene.env_origins[env_ids][:, 2]
                 bstate[:, 3:7] = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
                 bstate[:, 7:] = 0.0
                 block.write_root_pose_to_sim(bstate[:, 0:7], env_ids=env_ids)

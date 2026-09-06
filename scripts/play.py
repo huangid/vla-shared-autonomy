@@ -11,7 +11,7 @@ import time
 from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description="Play a pilot model, optionally with a copilot on top.")
-parser.add_argument("--task", type=str, required=True, choices=["GearMesh", "GearMeshIntent", "PegInsert", "NutThread", "ThreeBlocks"])
+parser.add_argument("--task", type=str, required=True, choices=["GearMesh", "GearMeshIntent", "PegInsert", "NutThread", "ThreeBlocks", "RandomBlock"])
 parser.add_argument("--pilot", type=str, required=True,
                     choices=["LaggyPilot", "NoisyPilot", "ExpertPilot", "BCPilot", "kNNPilot", "ReplayPilot", "ResidualPilot", "SpaceMousePilot"],
                     help="Pilot (base) model to run.")
@@ -25,6 +25,9 @@ parser.add_argument("--num_envs", type=int, default=1, help="Number of parallel 
 parser.add_argument("--record", action="store_true", default=False,
                     help="Record rollouts: save episode stats and RGB images to logs/rollouts/.")
 parser.add_argument("--no_rand", action="store_true", default=False, help="Disable domain randomization (keep sim deterministic).")
+parser.add_argument("--seed", type=int, default=None,
+                    help="Environment seed. Omit for a fresh random seed each run (so randomized tasks like "
+                         "RandomBlock actually vary between runs); pass an int to reproduce a specific rollout.")
 parser.add_argument("--vis_obs", action="store_true", default=False, help="Enable held/target visualization markers.")
 AppLauncher.add_app_launcher_args(parser)
 # suppress verbose Kit/USD logs by default
@@ -33,6 +36,11 @@ args_cli, hydra_args = parser.parse_known_args()
 sys.argv = [sys.argv[0]] + hydra_args
 if args_cli.record:
     args_cli.enable_cameras = True
+
+import random as _random
+if args_cli.seed is None:
+    args_cli.seed = _random.randint(0, 2**31 - 1)
+print(f"[INFO] Environment seed: {args_cli.seed}")
 
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
@@ -304,10 +312,12 @@ def _run_loop_recording(env_unwrapped, step_fn, on_done_fn, rollout_path):
             print("[INFO] All episodes completed.")
             break
 
+    instructions = getattr(env_unwrapped, "instructions", None)
     return {
         f"episode_{env_id:04d}": {
             "success": success_ts[env_id] != -1,
             "success_timestep": success_ts[env_id],
+            **({"instruction": instructions[env_id]} if instructions is not None else {}),
         }
         for env_id in range(num_envs)
     }
@@ -368,6 +378,8 @@ def main():
             def _run(env_cfg, agent_cfg):
                 if args_cli.num_envs is not None:
                     env_cfg.scene.num_envs = args_cli.num_envs
+
+                env_cfg.seed = args_cli.seed
 
                 env_cfg.pilot_model = pilot_model_key
                 env_cfg.pilot_type = pilot_type
@@ -431,6 +443,8 @@ def main():
             def _run(env_cfg, agent_cfg):
                 if args_cli.num_envs is not None:
                     env_cfg.scene.num_envs = args_cli.num_envs
+
+                env_cfg.seed = args_cli.seed
 
                 env_cfg.pilot_model = pilot_model_key
                 env_cfg.pilot_type = pilot_type
@@ -509,6 +523,8 @@ def main():
         def _run(env_cfg, agent_cfg):
             if args_cli.num_envs is not None:
                 env_cfg.scene.num_envs = args_cli.num_envs
+
+            env_cfg.seed = args_cli.seed
 
             env_cfg.pilot_model = pilot_model_key
             env_cfg.pilot_type = pilot_type
@@ -633,10 +649,12 @@ def main():
                         print("[INFO] All episodes completed.")
                         break
 
+                instructions = getattr(env_unwrapped, "instructions", None)
                 ep_stats = {
                     f"episode_{env_id:04d}": {
                         "success": success_ts[env_id] != -1,
                         "success_timestep": success_ts[env_id],
+                        **({"instruction": instructions[env_id]} if instructions is not None else {}),
                     }
                     for env_id in range(num_envs)
                 }
