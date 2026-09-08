@@ -1007,8 +1007,9 @@ class XArmEnv(DirectRLEnv):
             identity_quat, held_pos, identity_quat, -self.held_center_pos_local[env_ids],
         )[1]
         held_pos[:, :2] += translation_noise
+        rb_random = self.cfg_task.name == "three_blocks" and getattr(self.cfg_task, "randomize_positions", False)
         if self.cfg_task.name == "three_blocks":
-            if getattr(self.cfg_task, "randomize_positions", False):
+            if rb_random:
                 held_pos[:, 0] = self.rb_block_xy[env_ids, 0, 0]  # block A (held) x
                 held_pos[:, 1] = self.rb_block_xy[env_ids, 0, 1]  # block A (held) y
                 held_pos[:, 2] = self.cfg_task.block_spawn_z
@@ -1016,7 +1017,8 @@ class XArmEnv(DirectRLEnv):
                 held_pos[:, 0] = 0.40      # red block x
                 held_pos[:, 1] = -0.15    # red block y
                 held_pos[:, 2] = 0.05     # on table
-        held_quat = torch_utils.quat_mul(identity_quat, yaw_delta_quat)
+        # RandomBlock keeps blocks + bin axis-aligned with the table (no yaw jitter).
+        held_quat = identity_quat if rb_random else torch_utils.quat_mul(identity_quat, yaw_delta_quat)
 
         # Fixed asset pose.
         fixed_tip_pos_local = torch.zeros((n, 3), device=self.device)
@@ -1046,7 +1048,7 @@ class XArmEnv(DirectRLEnv):
                 fixed_pos[:, 0] = 0.6
                 fixed_pos[:, 1] = 0.0
                 fixed_pos[:, 2] = 0.0025
-        fixed_quat = torch_utils.quat_mul(identity_quat, yaw_delta_quat)
+        fixed_quat = identity_quat if rb_random else torch_utils.quat_mul(identity_quat, yaw_delta_quat)
 
         self._set_assets_state(
             held_pos=held_pos, held_quat=held_quat,
@@ -1063,15 +1065,17 @@ class XArmEnv(DirectRLEnv):
         sim_eef = init_fingertip.clone()
         sim_eef[:, :2] += translation_noise
         if self.cfg_task.name == "three_blocks":
-            # Center the starting fingertip pose over the bin/blocks midline instead of
-            # the recorded demos' start — every recorded episode starts at y~0.075,
-            # offset toward the y=+0.15 block rather than centered between the bin
-            # (y=0) and the blocks (y in {-0.15, 0, 0.15}). x is the midpoint between
-            # the blocks (x=0.4) and the bin (x=0.6). Keep the demo's z. This fixed
-            # start is also kept for random_block: the objects move each episode, so
-            # the policy must find them from observation rather than a primed pose.
-            sim_eef[:, 0] = 0.5
-            sim_eef[:, 1] = 0.0
+            # Override the recorded demos' start — they begin at x~0.41, y~0.075 (offset
+            # toward the +y block) and only ~10 cm above the table. `start_eef_xy` sits
+            # over the block region and `start_eef_z` lifts the arm clear so it starts
+            # fairly upright. This fixed start is also kept for random_block: the objects
+            # move each episode, so the policy must find them from observation.
+            start_xy = getattr(self.cfg_task, "start_eef_xy", (0.5, 0.0))
+            sim_eef[:, 0] = start_xy[0]
+            sim_eef[:, 1] = start_xy[1]
+            start_z = getattr(self.cfg_task, "start_eef_z", None)
+            if start_z is not None:
+                sim_eef[:, 2] = start_z
             # Also straighten the recorded starting orientation: every demo set (three
             # independent recordings) starts at ~180 deg about x plus a consistent
             # ~10-20 deg extra tilt, rather than a clean straight-down pose — snap to a

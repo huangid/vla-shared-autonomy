@@ -309,7 +309,7 @@ python scripts/play.py \
   reset for small runs, and saved into `meta/stats.json` by `--record`.
 
 The **bin is not randomized**: it is pinned to a constant pose (`bin_pos`, default
-`(0.62, 0.0, 0.0025)`) every episode. The bin geometry is kinematic (inherited
+`(0.54, 0.0, 0.0025)`) every episode. The bin geometry is kinematic (inherited
 from `ThreeBlocks.fixed_asset`) so it never moves under gravity or contact.
 
 Registered environments:
@@ -324,11 +324,14 @@ Registered environments:
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `randomize_positions` | `True` | master switch for block-position randomization |
-| `block_x_range` | `(0.34, 0.52)` | x-range each block is sampled from |
-| `block_y_range` | `(-0.18, 0.18)` | y-range each block is sampled from |
+| `block_x_range` | `(0.30, 0.44)` | x-range each block is sampled from |
+| `block_y_range` | `(-0.15, 0.15)` | y-range each block is sampled from |
 | `block_min_separation` | `0.06` | min centre-to-centre distance between blocks (rejection-resampled) |
 | `bin_clearance` | `0.11` | min distance a block may spawn from the bin centre |
-| `bin_pos` | `(0.62, 0.0, 0.0025)` | fixed bin pose — never resampled; the bin is kinematic |
+| `block_spawn_z` | `0.012` | block spawn height — the resting centre height of a 3 cm cube, so blocks spawn at rest rather than dropping |
+| `bin_pos` | `(0.54, 0.0, 0.0025)` | fixed bin pose — never resampled; the bin is kinematic |
+| `start_eef_xy` | `(0.36, 0.0)` | starting fingertip xy (over the block region) |
+| `start_eef_z` | `0.18` | starting fingertip height above the table (arm starts fairly upright) |
 | `single_target` | `True` | one instructed block per episode; the rest are distractors |
 | `target_colors` | `("red", "green", "blue")` | colour name per block index (A/B/C) |
 | `allowed_target_idx` | `(0, 1, 2)` | which colours episodes may target — restrict (e.g. `(0, 1)`) to hold a colour out for the challenge eval set |

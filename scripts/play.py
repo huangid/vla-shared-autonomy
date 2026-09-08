@@ -85,6 +85,36 @@ def _print_run_info(task, pilot_model, copilot_model, num_envs):
     print(border)
 
 
+def _episode_meta_snapshot(env_unwrapped):
+    """Capture per-env episode metadata at episode START.
+
+    DirectRLEnv.step() calls _reset_idx() inside the same step that reports
+    `done`, so by the time the recording loop exits, the env's instruction /
+    target / block layout have already advanced to the *next* episode. These
+    must be read before the episode runs, not after.
+    """
+    num_envs = env_unwrapped.num_envs
+    snap = [{} for _ in range(num_envs)]
+
+    instructions = getattr(env_unwrapped, "instructions", None)
+    target_idx = getattr(env_unwrapped, "target_block_idx", None)
+    # rb_block_xy is allocated for every three_blocks task but only filled when
+    # positions are randomized — otherwise it is all zeros and would be misleading.
+    block_xy = (
+        getattr(env_unwrapped, "rb_block_xy", None)
+        if getattr(env_unwrapped.cfg_task, "randomize_positions", False) else None
+    )
+
+    for env_id in range(num_envs):
+        if instructions is not None:
+            snap[env_id]["instruction"] = instructions[env_id]
+        if target_idx is not None:
+            snap[env_id]["target_idx"] = int(target_idx[env_id].item())
+        if block_xy is not None:
+            snap[env_id]["block_xy"] = block_xy[env_id].detach().cpu().tolist()
+    return snap
+
+
 def _make_rollout_dir():
     """Create and return the rollout output directory path.
 
@@ -248,6 +278,9 @@ def _run_loop_recording(env_unwrapped, step_fn, on_done_fn, rollout_path):
     timesteps = [0] * num_envs
     global_step = 0
 
+    # Must be read now — _reset_idx advances these inside the step that ends the episode.
+    ep_meta = _episode_meta_snapshot(env_unwrapped)
+
     store_rgb = env_unwrapped.cfg.vis.store_rgb
 
     robot_buffers = [[] for _ in range(num_envs)]
@@ -312,12 +345,11 @@ def _run_loop_recording(env_unwrapped, step_fn, on_done_fn, rollout_path):
             print("[INFO] All episodes completed.")
             break
 
-    instructions = getattr(env_unwrapped, "instructions", None)
     return {
         f"episode_{env_id:04d}": {
             "success": success_ts[env_id] != -1,
             "success_timestep": success_ts[env_id],
-            **({"instruction": instructions[env_id]} if instructions is not None else {}),
+            **ep_meta[env_id],
         }
         for env_id in range(num_envs)
     }
@@ -562,6 +594,9 @@ def main():
                     os.makedirs(os.path.join(rollout_path, f"episode_{env_id:04d}", "robot"), exist_ok=True)
 
                 obs, _ = env.reset()
+                # Must be read now — _reset_idx advances instruction/target/layout inside
+                # the step that ends the episode.
+                ep_meta = _episode_meta_snapshot(env_unwrapped)
 
                 while simulation_app.is_running():
                     with torch.inference_mode():
@@ -580,6 +615,7 @@ def main():
                         obs_policy = obs["policy"] if isinstance(obs, dict) else obs
                         obs_np = obs_policy.detach().cpu().numpy()
                         base_act_np = env_unwrapped.base_actions.detach().cpu().numpy()
+                        env_act_np = env_unwrapped.env_actions.detach().cpu().numpy()
                         qpos_np = env_unwrapped.qpos_targets.detach().cpu().numpy()
                         if store_rgb:
                             img_tensor = env_unwrapped.front_rgb
@@ -593,6 +629,7 @@ def main():
 
                             o = obs_np[env_id]
                             ba = base_act_np[env_id]
+                            ea = env_act_np[env_id]
                             robot_buffers[env_id].append({
                                 "obs.fingertip_pos":           o[0:3].tolist(),
                                 "obs.fingertip_quat":          o[3:7].tolist(),
@@ -602,9 +639,16 @@ def main():
                                 "obs.ee_linvel_fd":            o[14:17].tolist(),
                                 "obs.ee_angvel_fd":            o[17:20].tolist(),
                                 "obs.qpos":                    qpos_np[env_id].tolist(),
+                                # base_action = the raw pilot (human) command, pre-clamp.
                                 "base_action.fingertip_pos":   ba[0:3].tolist(),
                                 "base_action.fingertip_quat":  ba[3:7].tolist(),
                                 "base_action.gripper":         ba[7:8].tolist(),
+                                # action = what the env actually executed (post workspace +
+                                # gripper clamp). This is the correct BC target, and the
+                                # a_exec side of the shared-autonomy study.
+                                "action.fingertip_pos":        ea[0:3].tolist(),
+                                "action.fingertip_quat":       ea[3:7].tolist(),
+                                "action.gripper":              ea[7:8].tolist(),
                             })
 
                             if store_rgb:
@@ -649,12 +693,11 @@ def main():
                         print("[INFO] All episodes completed.")
                         break
 
-                instructions = getattr(env_unwrapped, "instructions", None)
                 ep_stats = {
                     f"episode_{env_id:04d}": {
                         "success": success_ts[env_id] != -1,
                         "success_timestep": success_ts[env_id],
-                        **({"instruction": instructions[env_id]} if instructions is not None else {}),
+                        **ep_meta[env_id],
                     }
                     for env_id in range(num_envs)
                 }

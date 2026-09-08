@@ -97,6 +97,18 @@ def episode_state_action(ep: dict):
     return state, env_state, action
 
 
+def frames_dir(meta: dict, camera_subdir: str) -> Path:
+    """Where this episode's RGB frames live.
+
+    Prefers the persistent copy convert_demos.py makes ("frames"); falls back to
+    the original rollout dir for sidecars written before that existed — note those
+    go stale as soon as another demo is recorded into the same rollout dir.
+    """
+    if meta.get("frames"):
+        return Path(meta["frames"])
+    return Path(meta["source"]) / meta["episode"] / camera_subdir
+
+
 def load_episode_images(rgb_dir: Path, n_frames: int) -> np.ndarray:
     """Load the first n_frames RGB frames from rgb_dir as a (n_frames, H, W, 3) uint8 array."""
     files = sorted(rgb_dir.glob("*.jpg")) + sorted(rgb_dir.glob("*.png"))
@@ -156,8 +168,11 @@ def main():
     if args.images:
         # Probe frame size from the first episode's first frame.
         probe = sidecar[sorted(demos.keys())[0]]
-        first_frame = sorted((Path(probe["source"]) / probe["episode"] / args.camera_subdir).glob("*.jpg"))[0]
-        h, w = np.asarray(Image.open(first_frame).convert("RGB")).shape[:2]
+        probe_dir = frames_dir(probe, args.camera_subdir)
+        probe_files = sorted(probe_dir.glob("*.jpg")) + sorted(probe_dir.glob("*.png"))
+        if not probe_files:
+            raise FileNotFoundError(f"no RGB frames in {probe_dir}")
+        h, w = np.asarray(Image.open(sorted(set(probe_files))[0]).convert("RGB")).shape[:2]
         features[image_key] = {
             "dtype": args.image_dtype,
             "shape": (h, w, 3),
@@ -187,8 +202,7 @@ def main():
 
         images = None
         if args.images:
-            rgb_dir = Path(meta["source"]) / meta["episode"] / args.camera_subdir
-            images = load_episode_images(rgb_dir, n)
+            images = load_episode_images(frames_dir(meta, args.camera_subdir), n)
 
         for t in range(n):
             frame = {

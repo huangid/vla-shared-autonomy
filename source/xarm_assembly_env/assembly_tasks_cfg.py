@@ -393,16 +393,26 @@ class RandomBlock(ThreeBlocks):
 
     # Block spawn region: xy sampled uniformly in this rectangle, rejection-resampled
     # so no two blocks are within `block_min_separation` and no block lands within
-    # `bin_clearance` of the bin centre.
-    block_x_range: tuple = (0.34, 0.52)
-    block_y_range: tuple = (-0.18, 0.18)
+    # `bin_clearance` of the bin centre. Kept close to the arm base for comfortable
+    # SpaceMouse teleop (blocks in front, bin just behind them).
+    block_x_range: tuple = (0.30, 0.44)
+    block_y_range: tuple = (-0.15, 0.15)
     block_min_separation: float = 0.06
     bin_clearance: float = 0.11
-    block_spawn_z: float = 0.05
+    # Resting centre height of a 3 cm block on the table. Measured from recorded
+    # demos: blocks settle at z ~= 0.0107, so the inherited ThreeBlocks value of
+    # 0.05 spawned them ~4 cm in the air and they fell during reset (leaving the
+    # first recorded frame of every episode with the block still mid-drop).
+    block_spawn_z: float = 0.012
 
     # Fixed bin pose, pinned every reset. The bin geometry (kinematic, immovable)
     # is inherited from ThreeBlocks.fixed_asset.
-    bin_pos: tuple = (0.62, 0.0, 0.0025)
+    bin_pos: tuple = (0.54, 0.0, 0.0025)
+
+    # Starting fingertip pose: pulled in over the block region and lifted well
+    # clear of the blocks so the arm starts fairly upright, not over-extended.
+    start_eef_xy: tuple = (0.36, 0.0)
+    start_eef_z: float = 0.18
 
 
 @configclass

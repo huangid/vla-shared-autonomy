@@ -29,6 +29,17 @@ class XArmEnvGuidedDiffusion(XArmEnv):
             self.env_actions[:, 3:7].norm(dim=-1, keepdim=True).clamp_min(1e-8)
         )
 
+        # Keep the IK target inside the reachable workspace — same guard as
+        # XArmEnv._apply_residual. Without it an out-of-distribution policy action
+        # goes straight to admittance + IK, and (matching the residual env's clamp)
+        # train-time and eval-time action spaces would differ.
+        self.env_actions[:, 0:3] = torch.nan_to_num(
+            self.env_actions[:, 0:3], nan=0.0, posinf=0.0, neginf=0.0
+        ).clamp(
+            torch.tensor([-0.2, -0.6, 0.0], device=self.device),
+            torch.tensor([1.0, 0.6, 0.8], device=self.device),
+        )
+
         # Clamp gripper to [0, 1].
         self.env_actions[:, 7:8] = self.env_actions[:, 7:8].clamp(0.0, 1.0)
 
