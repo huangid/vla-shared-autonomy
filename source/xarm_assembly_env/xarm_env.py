@@ -894,10 +894,18 @@ class XArmEnv(DirectRLEnv):
         so that no two blocks are closer than ``block_min_separation`` and no
         block lands within ``bin_clearance`` of the (fixed) bin centre. The bin
         itself is never randomized — see ``RandomBlock.bin_pos``.
+
+        If ``cfg_task.layout_seed`` is set, all draws come from a generator
+        re-seeded with it on every call, so every episode gets the *same* layout.
         """
         n = len(env_ids)
         t = self.cfg_task
         dev = self.device
+
+        gen = None
+        if getattr(t, "layout_seed", None) is not None:
+            gen = torch.Generator(device=dev)
+            gen.manual_seed(int(t.layout_seed))
 
         lo = torch.tensor([t.block_x_range[0], t.block_y_range[0]], device=dev)
         span = torch.tensor(
@@ -908,7 +916,7 @@ class XArmEnv(DirectRLEnv):
 
         pos = torch.zeros(n, 3, 2, device=dev)
         for i in range(3):
-            cand = lo + span * torch.rand(n, 2, device=dev)
+            cand = lo + span * torch.rand(n, 2, device=dev, generator=gen)
             for _ in range(50):
                 bad = torch.linalg.vector_norm(cand - bin_xy, dim=-1) < t.bin_clearance
                 if i > 0:
@@ -916,7 +924,7 @@ class XArmEnv(DirectRLEnv):
                     bad |= (d < t.block_min_separation).any(dim=1)
                 if not bad.any():
                     break
-                cand[bad] = lo + span * torch.rand(int(bad.sum()), 2, device=dev)
+                cand[bad] = lo + span * torch.rand(int(bad.sum()), 2, device=dev, generator=gen)
             pos[:, i] = cand
 
         self.rb_block_xy[env_ids] = pos

@@ -33,6 +33,15 @@ parser.add_argument("--vis_obs", action="store_true", default=False,
                          "scene, so they also land in the recorded camera frames — and the held marker "
                          "sits exactly on the target block, which is a direct answer key for a policy "
                          "trained on those images. Never combine with --record for learning data.")
+parser.add_argument("--target_color", type=str, default=None, choices=["red", "green", "blue"],
+                    help="RandomBlock: force every episode to target this colour instead of letting it "
+                         "be drawn at random. One episode per launch means the dataset's colour balance "
+                         "is left to chance and drifts (the first 100 demos came out 46 green / 33 blue "
+                         "/ 21 red); use this to top up whichever colour is short.")
+parser.add_argument("--layout_seed", type=int, default=None,
+                    help="RandomBlock: reuse ONE block layout for every episode this run. Combine with "
+                         "--target_color to record the same scene under different instructions, which "
+                         "is what forces the policy to read the instruction instead of the layout.")
 AppLauncher.add_app_launcher_args(parser)
 # suppress verbose Kit/USD logs by default
 parser.set_defaults(kit_args="--/log/level=error --/log/fileLogLevel=error --/log/outputStreamLevel=error")
@@ -80,6 +89,23 @@ COPILOT_NAME_MAP = {
     "ResidualBC":            ("Residual",        f"shared_autonomy_policies/residual_copilot/{args_cli.task}_bc_teleop/nn/FactoryXarm.pth"),
     "ResidualCopilot":       ("Residual",        f"shared_autonomy_policies/residual_copilot/{args_cli.task}_noisy_knn/nn/FactoryXarm.pth"),
 }
+
+
+def _apply_task_overrides(env_cfg):
+    """Apply --target_color / --layout_seed to the task cfg (RandomBlock only)."""
+    task_cfg = env_cfg.task
+    if args_cli.target_color is not None:
+        colors = getattr(task_cfg, "target_colors", None)
+        if not colors or args_cli.target_color not in colors:
+            raise SystemExit(f"--target_color is not supported by task {args_cli.task}")
+        idx = colors.index(args_cli.target_color)
+        task_cfg.allowed_target_idx = (idx,)
+        print(f"[INFO] Target colour forced to {args_cli.target_color} (block index {idx})")
+    if args_cli.layout_seed is not None:
+        if not hasattr(task_cfg, "layout_seed"):
+            raise SystemExit(f"--layout_seed is not supported by task {args_cli.task}")
+        task_cfg.layout_seed = args_cli.layout_seed
+        print(f"[INFO] Block layout fixed to layout_seed={args_cli.layout_seed}")
 
 
 def _print_run_info(task, pilot_model, copilot_model, num_envs):
@@ -423,6 +449,7 @@ def main():
                     env_cfg.scene.num_envs = args_cli.num_envs
 
                 env_cfg.seed = args_cli.seed
+                _apply_task_overrides(env_cfg)
 
                 env_cfg.pilot_model = pilot_model_key
                 env_cfg.pilot_type = pilot_type
@@ -489,6 +516,7 @@ def main():
                     env_cfg.scene.num_envs = args_cli.num_envs
 
                 env_cfg.seed = args_cli.seed
+                _apply_task_overrides(env_cfg)
 
                 env_cfg.pilot_model = pilot_model_key
                 env_cfg.pilot_type = pilot_type
@@ -570,6 +598,7 @@ def main():
                 env_cfg.scene.num_envs = args_cli.num_envs
 
             env_cfg.seed = args_cli.seed
+            _apply_task_overrides(env_cfg)
 
             env_cfg.pilot_model = pilot_model_key
             env_cfg.pilot_type = pilot_type

@@ -198,9 +198,13 @@ def run(env_cfg, agent_cfg):
     results = []
     steps_in_ep = 0
     grounding = []
+    aimed_at = []           # (target_colour, aimed_colour) per episode
     dumped = False
     lifted = False          # target block ever raised clear of the table this episode
     binned_any = None       # blocks_binned snapshot at episode end
+    min_xy = 1e9            # closest the fingertip got to the target block (xy, m)
+    min_xyz = 1e9
+    approach = []           # per-episode closest approach, for the summary
     while simulation_app.is_running() and len(results) < args_cli.num_episodes:
         if steps_in_ep == 0:
             # DirectRLEnv auto-resets inside the step that reports `done`, so the
@@ -225,6 +229,8 @@ def run(env_cfg, agent_cfg):
             d = ((blocks - reach[None, :]) ** 2).sum(1) ** 0.5
             closest = int(d.argmin())
             grounding.append(closest == tgt_pre)
+            aimed_at.append((env_u.cfg_task.target_colors[tgt_pre],
+                             env_u.cfg_task.target_colors[closest]))
             print(f"    [grounding] aims at {env_u.cfg_task.target_colors[closest]:<5s} "
                   f"(target {env_u.cfg_task.target_colors[tgt_pre]:<5s})  "
                   f"d_target={d[tgt_pre]:.3f}  d_min={d.min():.3f}")
@@ -240,6 +246,13 @@ def run(env_cfg, agent_cfg):
             env_u._block_c.data.root_pos_w[0, 2]]) - env_u.scene.env_origins[0, 2]
         if float(blocks_z[tgt_pre]) > 0.045:
             lifted = True
+
+        # How close did the gripper actually get to the target block? This is the
+        # decisive number for "right direction but misses": a 3 cm cube needs the
+        # fingertip within roughly 1-1.5 cm to close on it.
+        tgt_xy = env_u.rb_block_xy[0, tgt_pre]
+        ft = env_u.fingertip_midpoint_pos[0]
+        min_xy = min(min_xy, float(torch.linalg.vector_norm(ft[:2] - tgt_xy)))
         binned_any = env_u.blocks_binned[0].clone()
 
         done = bool((terminated | truncated)[0].item()) or steps_in_ep >= args_cli.max_steps
@@ -262,8 +275,10 @@ def run(env_cfg, agent_cfg):
             else:
                 why = "fail: never lifted the target"
             results[-1]["reason"] = why
+            approach.append(min_xy)
+            results[-1]["min_xy"] = min_xy
             print(f"[{len(results):3d}/{args_cli.num_episodes}] {color:<5s} "
-                  f"{why:<52s} ({steps_in_ep} steps)")
+                  f"{why:<52s} ({steps_in_ep} steps)  closest to target: {min_xy*100:.1f} cm")
             if steps_in_ep >= args_cli.max_steps and not (terminated | truncated)[0].item():
                 # Force-reset an episode that hit the step cap without terminating.
                 # Must be inside inference_mode: the env's buffers were created under
@@ -275,6 +290,7 @@ def run(env_cfg, agent_cfg):
             steps_in_ep = 0
             lifted = False
             binned_any = None
+            min_xy = 1e9
 
     n = len(results)
     n_succ = sum(r["success"] for r in results)
@@ -292,6 +308,28 @@ def run(env_cfg, agent_cfg):
     print("  failure modes:")
     for k, v in _C(r.get("reason", "?") for r in results).most_common():
         print(f"    {v:>3}x  {k}")
+    if approach:
+        import numpy as _np
+        a = _np.array(approach)
+        print(f"  closest fingertip-to-target approach: median {_np.median(a)*100:.1f} cm  "
+              f"min {a.min()*100:.1f} cm  max {a.max()*100:.1f} cm")
+        print(f"    within 1.5 cm (graspable) in {int((a < 0.015).sum())}/{len(a)} episodes")
+        print("    -> if it rarely gets under ~1.5 cm, the failure is PRECISION, not block choice")
+    if aimed_at:
+        cols = list(env_u.cfg_task.target_colors)
+        print("  which block it AIMED AT, by instructed colour:")
+        print(f"    {'target':<8s} " + " ".join(f"{c:>6s}" for c in cols) + "   n")
+        for tc in cols:
+            row = [a for (t, a) in aimed_at if t == tc]
+            counts = [sum(1 for a in row if a == c) for c in cols]
+            print(f"    {tc:<8s} " + " ".join(f"{n:>6d}" for n in counts) + f"   {len(row)}")
+        allaims = [a for (_t, a) in aimed_at]
+        from collections import Counter as _C2
+        top, topn = _C2(allaims).most_common(1)[0]
+        print(f"    -> aimed at '{top}' in {topn}/{len(allaims)} episodes "
+              f"({100.0*topn/len(allaims):.0f}%) regardless of instruction")
+        print("       (a near-100% single column = the prompt is being ignored;")
+        print("        a strong diagonal = language grounding is working)")
     if grounding:
         g = sum(grounding)
         print(f"  first-chunk grounding: {g}/{len(grounding)} = "

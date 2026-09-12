@@ -399,6 +399,12 @@ class RandomBlock(ThreeBlocks):
     block_y_range: tuple = (-0.15, 0.15)
     block_min_separation: float = 0.06
     bin_clearance: float = 0.11
+    # When set, every reset draws the SAME block layout (the sampler runs off a
+    # generator re-seeded with this value each call). Used to collect "same scene,
+    # different instruction" demos: replay one layout across all three colours so
+    # the instruction, not the layout, is the only thing that predicts the action.
+    # Leave None for the usual fresh-layout-per-episode behaviour.
+    layout_seed: int | None = None
     # Resting centre height of a 3 cm block on the table. Measured from recorded
     # demos: blocks settle at z ~= 0.0107, so the inherited ThreeBlocks value of
     # 0.05 spawned them ~4 cm in the air and they fell during reset (leaving the

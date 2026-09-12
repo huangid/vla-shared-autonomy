@@ -381,6 +381,32 @@ python scripts/play.py --task RandomBlock --pilot SpaceMousePilot --num_envs 1 -
 > default — at 15 Hz it prints ~1400 lines per episode and scrolls the instruction
 > off screen).
 
+**2b. Controlling *what* gets collected.** Because the target colour is drawn
+independently every launch, the dataset's colour balance is left to chance and
+drifts — the first 100 demos came out 46 green / 33 blue / 21 red, and eval
+success tracked that ordering. Two flags make a batch deliberate:
+
+```bash
+# top up an under-represented colour
+python scripts/play.py --task RandomBlock --pilot SpaceMousePilot --num_envs 1 --record \
+  --target_color red
+
+# same scene, different instruction: re-record one layout under each colour
+python scripts/play.py --task RandomBlock --pilot SpaceMousePilot --num_envs 1 --record \
+  --layout_seed 7 --target_color red
+python scripts/play.py --task RandomBlock --pilot SpaceMousePilot --num_envs 1 --record \
+  --layout_seed 7 --target_color green
+python scripts/play.py --task RandomBlock --pilot SpaceMousePilot --num_envs 1 --record \
+  --layout_seed 7 --target_color blue
+```
+
+`--layout_seed` pins the block layout for the whole run (the sampler is re-seeded
+with it on every reset), so the three commands above differ *only* in the
+instruction. That matters: with every layout seen exactly once, the layout alone
+predicts the demonstrated trajectory and the instruction is redundant — the
+policy can score well on training data without ever reading it. Repeating a
+layout across colours removes that shortcut.
+
 **3. Append the recording to a dataset:**
 
 ```bash
