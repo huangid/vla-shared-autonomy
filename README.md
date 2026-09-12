@@ -381,6 +381,14 @@ python scripts/play.py --task RandomBlock --pilot SpaceMousePilot --num_envs 1 -
 > default — at 15 Hz it prints ~1400 lines per episode and scrolls the instruction
 > off screen).
 
+> **`OSError: open failed` from `spacemouse_pilot.py`** means the HID device could
+> not be opened. In order of likelihood: the SpaceMouse is unplugged (`lsusb -d 256f:`
+> should list it — the pilot opens vendor `0x256f`, product `0xc635`); a crashed
+> earlier run still holds it, since the device is exclusive-open (`pgrep -af play.py`,
+> then kill it); or the hidraw node is root-only (`ls -l /dev/hidraw*` should show
+> `crw-rw-rw-` for the SpaceMouse — `/etc/udev/rules.d/99-spacemouse.rules` grants
+> this via `SUBSYSTEM=="hidraw", ATTRS{idVendor}=="256f", MODE="0666"`).
+
 **2b. Controlling *what* gets collected.** Because the target colour is drawn
 independently every launch, the dataset's colour balance is left to chance and
 drifts — the first 100 demos came out 46 green / 33 blue / 21 red, and eval
@@ -406,6 +414,55 @@ instruction. That matters: with every layout seen exactly once, the layout alone
 predicts the demonstrated trajectory and the instruction is redundant — the
 policy can score well on training data without ever reading it. Repeating a
 layout across colours removes that shortcut.
+
+**2c. Batch collection loop.** Run this **once** — it performs all 90
+record-and-convert cycles itself. Your only job is to drive each episode with the
+SpaceMouse as it appears; when the episode ends the process exits and the next one
+launches automatically.
+
+```bash
+cd ~/vla-shared-autonomy
+trap 'echo "stopping"; exit 130' INT
+for L in $(seq 1 30); do
+  for C in red green blue; do
+    echo "=== layout $L / $C ==="
+    python scripts/play.py --task RandomBlock --pilot SpaceMousePilot \
+      --num_envs 1 --record --yes --layout_seed $L --target_color $C || exit 1
+    python scripts/convert_demos.py \
+      --rollout_dir logs/rollouts/eval_RandomBlock_with_SpaceMousePilot \
+      --output logs/data/randomblock_demos.npy --append || exit 1
+  done
+done
+```
+
+`--yes` skips the rollout-directory overwrite prompt, which would otherwise block
+on stdin and hang the loop. The `trap` makes a single Ctrl-C exit the whole loop —
+without it, Ctrl-C kills only the current `play.py` and bash continues to the next
+launch.
+
+Budget ~2.5–3 h for 90 demos: Isaac restarts on every episode (~40–60 s), which is
+unavoidable with one-episode-per-launch. To split it across sittings, change the
+range (`seq 1 10`, then `seq 11 20`, …) — each chunk appends to the same dataset.
+Do not reuse a range: the same `layout_seed` reproduces the same scene.
+
+> **This does not narrow where blocks spawn.** Within one layout the three
+> episodes target three *different* blocks, so 30 layouts x 3 colours yields 90
+> distinct reach targets — as many as 90 fully random demos. Binned 5x5 over the
+> spawn rectangle, seeds 1–30 leave no empty cell (x 0.300–0.438, y -0.148–0.149).
+> What repeats is the *scene*, which is the point: the same image now maps to three
+> different trajectories, so only the instruction can resolve them.
+
+Check progress at any time from another terminal:
+
+```bash
+python3 -c "
+import json,collections
+m=json.load(open('logs/data/randomblock_demos.npy.tasks.json'))
+c=collections.Counter(v['task'].split()[3] for v in m.values())
+lay=set(tuple(round(x,3) for b in v['block_xy'] for x in b) for v in m.values())
+print('episodes:',len(m),' colours:',dict(c),' unique layouts:',len(lay))
+"
+```
 
 **3. Append the recording to a dataset:**
 
