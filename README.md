@@ -304,9 +304,15 @@ python scripts/play.py \
 - **Single-target, language-conditioned pick.** Each episode names one block
   colour — `"pick up the {color} block and put it in the bin"` — and the other
   two are distractors. **Success = the instructed block is in the bin and no
-  distractor is.** The target colour cycles round-robin per env (balanced data);
-  the instruction string is on `env.unwrapped.instructions[env_id]`, printed at
-  reset for small runs, and saved into `meta/stats.json` by `--record`.
+  distractor is.** The instruction string is on
+  `env.unwrapped.instructions[env_id]`, printed at reset for small runs, and
+  saved into `meta/stats.json` by `--record`.
+
+> **Colour balance is not guaranteed.** The target advances round-robin *within a
+> process*, but `target_block_idx` is seeded randomly at env construction — so
+> when you collect one episode per launch (the normal teleop workflow) the colour
+> is effectively random each time. A 100-demo run came out 41/34/25. Check the
+> balance partway through and keep going if one colour is lagging.
 
 The **bin is not randomized**: it is pinned to a constant pose (`bin_pos`, default
 `(0.54, 0.0, 0.0025)`) every episode. The bin geometry is kinematic (inherited
@@ -358,12 +364,22 @@ python scripts/play.py --task RandomBlock --pilot SpaceMousePilot --num_envs 1
 
 **2. Record demos.** `--record` enables the front camera and writes RGB frames +
 robot state per timestep, plus the per-episode instruction into `meta/stats.json`.
-Each reset prints the instruction (`[RandomBlock] env 0: pick up the green block …`)
-— read it and teleop that block into the bin. The episode ends on success.
+The episode ends on success.
 
 ```bash
 python scripts/play.py --task RandomBlock --pilot SpaceMousePilot --num_envs 1 --record
 ```
+
+> **One episode per launch.** With `--num_envs 1` the recorder stops once that
+> env's episode ends, so collecting N demos means N launches (steps 2+3 repeated).
+>
+> **Two instructions get printed — drive the first.** The second is printed by the
+> auto-reset that fires as the episode ends, and belongs to an episode you never
+> drive. The saved label is taken from the correct one either way.
+>
+> Set `SM_DEBUG=1` to re-enable the per-step SpaceMouse axis readout (off by
+> default — at 15 Hz it prints ~1400 lines per episode and scrolls the instruction
+> off screen).
 
 **3. Append the recording to a dataset:**
 
@@ -373,44 +389,135 @@ python scripts/convert_demos.py \
   --output logs/data/randomblock_demos.npy --append
 ```
 
-This writes `randomblock_demos.npy` (kNN-format trajectories) plus a sidecar
-`randomblock_demos.npy.tasks.json` — `{npy_idx: {task, source, episode}}`, kept
-out of the `.npy` because the kNN loader tensorizes every key in an episode dict.
-The sidecar carries each episode's instruction and points at the rollout dir its
-RGB frames live in.
+Answer `y` to the overwrite prompt on the next `--record` run — that demo is
+already in the `.npy`, and the rollout dir is only a staging area. Re-running the
+conversion on an unchanged rollout dir is detected by trajectory fingerprint and
+skipped, so a stray repeat won't duplicate an episode.
 
-**4. Build the SmolVLA dataset** (images + per-episode `task` string):
+This writes three things:
+
+- `randomblock_demos.npy` — the kNN-format trajectories. Actions are clamped to
+  the executable workspace, and the terminal timestep is dropped (on the step
+  that reports `done` the env has already reset, so that sample belongs to the
+  next episode).
+- `randomblock_demos_frames/episode_NNNNN/` — the RGB frames, **copied** out of
+  the rollout dir. This matters: `play.py --record` wipes and reuses the same
+  rollout directory every run, so anything that merely pointed at it would go
+  stale as soon as the next demo was recorded.
+- `randomblock_demos.npy.tasks.json` — a sidecar holding each episode's `task`
+  string, `frames` path, `steps` / `n_frames`, `block_xy`, `target_idx` and a
+  trajectory `fingerprint` (re-running the conversion on an already-converted
+  recording is skipped rather than duplicated). It is kept out of the `.npy`
+  because the kNN loader tensorizes every key in an episode dict.
+
+**4. Verify the collection.** Do this after the first ~3 demos (to confirm the
+pipeline) and again before training. It checks the failure modes that are
+otherwise silent:
+
+```bash
+python - <<'PY'
+import numpy as np, json, collections, os
+d = np.load('logs/data/randomblock_demos.npy', allow_pickle=True).item()
+m = json.load(open('logs/data/randomblock_demos.npy.tasks.json'))
+print(f"episodes {len(d)} / meta {len(m)}")
+print("colours :", dict(collections.Counter(v['task'].split()[3] for v in m.values())))
+bad = collections.defaultdict(list)
+seen = {}
+for k in sorted(d):
+    e, n = m[str(k)], len(d[k]['obs.gripper'])
+    if e.get('steps') != n or e.get('n_frames') != n: bad['count'].append(k)
+    fd = e.get('frames')
+    if not fd or not os.path.isdir(fd): bad['no_frames'].append(k)
+    elif len([f for f in os.listdir(fd) if f.endswith(('.jpg', '.png'))]) != n: bad['count'].append(k)
+    p = d[k]['obs.fingertip_pos'][-1]           # must NOT be the reset start pose
+    if abs(p[0] - 0.36) < 1e-3 and abs(p[1]) < 1e-3 and abs(p[2] - 0.18) < 1e-3: bad['terminal'].append(k)
+    if e.get('fingerprint') in seen: bad['dup'].append(k)
+    seen[e.get('fingerprint')] = k
+print({k: v for k, v in bad.items()} or "all checks pass")
+ag = np.concatenate([d[k]['action.gripper'] for k in sorted(d)])
+ap = np.concatenate([d[k]['action.fingertip_pos'] for k in sorted(d)])
+print(f"action.grip [{ag.min()}, {ag.max()}] (want [0,1]);  pos z floor {ap[:,2].min():.3f} (want 0.000)")
+PY
+```
+
+Also confirm each episode's `task` matches the colour you actually drove — that
+is the one check no script can make for you, and it is the check that catches a
+label desync.
+
+**5. Build the SmolVLA dataset** (images + per-episode `task` string):
 
 ```bash
 python scripts/npy_to_lerobot.py \
   --input logs/data/randomblock_demos.npy \
-  --repo_id <hf_user>/randomblock_vla --images
+  --repo_id local/randomblock_vla \
+  --root logs/lerobot/randomblock_vla \
+  --images --overwrite
 ```
 
-`--images` reads the sidecar, attaches `observation.images.front` from the
-recorded frames, and uses the per-episode instruction as the `task` (it also
-drops `observation.environment_state` — the VLA grounds spatial relations from
-pixels + language). Drop `--images` (and pass `--task "..."`) for a state-only
-DiffusionPolicy dataset. Add `--push_to_hub` to upload, or `--root <dir>` to keep
-it local. Guidance from the SmolVLA paper: ~50 demos per variation was enough,
-25 was not — so budget **~30 demos per colour** (~90 total), more if eval is weak.
+`--images` reads the sidecar, attaches `observation.images.front` from the copied
+frames, and uses the per-episode instruction as the `task` (it also drops
+`observation.environment_state` — the VLA grounds spatial relations from pixels +
+language). Drop `--images` (and pass `--task "..."`) for a state-only
+DiffusionPolicy dataset.
 
-**5. Finetune SmolVLA** on that dataset (LeRobot's built-in trainer, no custom script):
+- `--root <dir>` keeps the dataset local; omit it to use the HF cache, add
+  `--push_to_hub` (with a real `<hf_user>/…` repo id) to upload.
+- **`--overwrite`** deletes `--root` first. `LeRobotDataset.create()` refuses to
+  write into an existing directory, so without it any failed run blocks every
+  retry with `FileExistsError`.
+- `--image_dtype video` (default) needs ffmpeg; use `--image_dtype image` to
+  store PNGs instead — larger on disk, trains the same.
+
+Sizing guidance from the SmolVLA paper: ~50 demos per variation was enough and 25
+was not. **~100 total** across the three colours is a reasonable target; collect
+more if eval comes back weak on a particular colour.
+
+**6. Finetune SmolVLA** on that dataset (LeRobot's built-in trainer, no custom script):
 
 ```bash
 lerobot-train \
   --policy.path=lerobot/smolvla_base \
-  --dataset.repo_id=<hf_user>/randomblock_vla \
+  --policy.push_to_hub=false \
+  --dataset.repo_id=local/randomblock_vla \
+  --dataset.root=logs/lerobot/randomblock_vla \
+  --dataset.video_backend=pyav \
+  --rename_map='{"observation.images.front": "observation.images.camera1"}' \
   --batch_size=64 --steps=20000 \
   --output_dir=outputs/train/rb_smolvla --job_name=rb_smolvla \
   --policy.device=cuda
 ```
 
-For a local (un-pushed) dataset add `--dataset.root=<path>`. ~20k steps ≈ 4 h on
-one A100; the RTX 5090 is comparable. Checkpoints land in
+- **`--rename_map`** is required. `smolvla_base` declares three cameras
+  (`camera1/2/3`); our dataset has one (`front`). Validation passes when the
+  dataset's visual keys are a *subset* of the policy's, so mapping `front →
+  camera1` is enough — SmolVLA then trains on that single camera and ignores the
+  other two (missing keys are only zero-padded up to `config.empty_cameras`,
+  which is `0`). Without it: `Feature mismatch between dataset/environment and
+  policy config`.
+  → The finetuned checkpoint therefore expects **`observation.images.camera1`** at
+  inference. `eval_smolvla.py` reads the key off the checkpoint config
+  automatically, so this needs no extra flag at eval time.
+- **`--dataset.video_backend=pyav`** avoids `torchcodec`, whose default decoder
+  links FFmpeg's shared libraries (`libavutil.so.*`) — those are usually absent
+  even when the `ffmpeg` *binary* is present, so dataset encoding succeeds and
+  then training dies at the first batch with
+  `RuntimeError: Could not load libtorchcodec`. `pyav` ships its own FFmpeg.
+  (The other way out is rebuilding the dataset with `--image_dtype image`, which
+  skips video decoding entirely at the cost of disk.)
+- **`--policy.push_to_hub=false`** is required for local training — it defaults to
+  true, and the config validator then rejects the run with
+  `'policy.repo_id' argument missing`. To push instead, pass
+  `--policy.repo_id=<hf_user>/rb_smolvla`.
+- Drop `--dataset.root` if the dataset was pushed to the Hub.
+- Lower `--batch_size` (e.g. 32) if it OOMs.
+- SmolVLA's SmolVLM processor needs a package that isn't pulled in by default:
+  `uv pip install num2words` (otherwise it fails with
+  `ImportError: Package num2words is required to run SmolVLM processor`).
+
+~20k steps ≈ 4 h on one A100; the RTX 5090 is comparable. Checkpoints land in
 `outputs/train/rb_smolvla/checkpoints/`.
 
-**6. Evaluate** — N fresh episodes, no human, SmolVLA driving:
+**7. Evaluate** — N fresh episodes, no human, SmolVLA driving:
 
 ```bash
 python scripts/eval_smolvla.py \

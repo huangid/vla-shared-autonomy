@@ -28,7 +28,11 @@ parser.add_argument("--no_rand", action="store_true", default=False, help="Disab
 parser.add_argument("--seed", type=int, default=None,
                     help="Environment seed. Omit for a fresh random seed each run (so randomized tasks like "
                          "RandomBlock actually vary between runs); pass an int to reproduce a specific rollout.")
-parser.add_argument("--vis_obs", action="store_true", default=False, help="Enable held/target visualization markers.")
+parser.add_argument("--vis_obs", action="store_true", default=False,
+                    help="Enable held/target visualization markers. NOTE: these are rendered into the "
+                         "scene, so they also land in the recorded camera frames — and the held marker "
+                         "sits exactly on the target block, which is a direct answer key for a policy "
+                         "trained on those images. Never combine with --record for learning data.")
 AppLauncher.add_app_launcher_args(parser)
 # suppress verbose Kit/USD logs by default
 parser.set_defaults(kit_args="--/log/level=error --/log/fileLogLevel=error --/log/outputStreamLevel=error")
@@ -36,6 +40,13 @@ args_cli, hydra_args = parser.parse_known_args()
 sys.argv = [sys.argv[0]] + hydra_args
 if args_cli.record:
     args_cli.enable_cameras = True
+    if args_cli.vis_obs:
+        print("\n" + "!" * 78)
+        print("!! --vis_obs WITH --record: the held/target gizmos will be baked into every")
+        print("!! recorded camera frame, and the held gizmo sits ON the target block. A policy")
+        print("!! trained on these images learns to follow the marker, not the task, and will")
+        print("!! collapse at eval where no markers are drawn. Drop --vis_obs.")
+        print("!" * 78 + "\n")
 
 import random as _random
 if args_cli.seed is None:
@@ -424,8 +435,9 @@ def main():
                     env_cfg.dmr.aug_data = False
                     env_cfg.vis.order_envs = True
 
-                if args_cli.vis_obs:
-                    env_cfg.vis.vis_obs = True
+                # Authoritative: the cfg default is True, and markers render into the
+                # recorded camera frames. Never let it fall through implicitly.
+                env_cfg.vis.vis_obs = args_cli.vis_obs
 
                 env = gym.make(task_id, cfg=env_cfg)
                 env.unwrapped.cfg_task.success_rotation_threshold_deg = 180.0
@@ -489,8 +501,9 @@ def main():
                     env_cfg.dmr.aug_data = False
                     env_cfg.vis.order_envs = True
 
-                if args_cli.vis_obs:
-                    env_cfg.vis.vis_obs = True
+                # Authoritative: the cfg default is True, and markers render into the
+                # recorded camera frames. Never let it fall through implicitly.
+                env_cfg.vis.vis_obs = args_cli.vis_obs
 
                 env = gym.make(task_id, cfg=env_cfg)
                 env.unwrapped.cfg_task.success_rotation_threshold_deg = 180.0
@@ -563,6 +576,9 @@ def main():
 
             if args_cli.record:
                 env_cfg.vis.store_rgb = True
+            # Authoritative: the cfg default is True, and markers render into the
+            # recorded camera frames. Never let it fall through implicitly.
+            env_cfg.vis.vis_obs = args_cli.vis_obs
 
             if args_cli.no_rand:
                 env_cfg.dmr.rand_ctrl = False

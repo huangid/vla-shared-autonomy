@@ -1,3 +1,4 @@
+import os
 import sys
 import threading
 import time
@@ -5,6 +6,11 @@ import torch
 import numpy as np
 from scipy.spatial.transform import Rotation
 import hid
+
+# Per-step axis readout. Off by default — at 15 Hz it prints ~1400 lines per
+# episode, which scrolls the task instruction off screen during demo collection.
+# Re-enable with SM_DEBUG=1.
+_SM_DEBUG = bool(os.environ.get("SM_DEBUG"))
 
 
 
@@ -77,7 +83,8 @@ class SpaceMousePilot:
             drot = self._rot * self.rot_scale
             gval = self._grip
 
-        print("SM cmd:", dpos.cpu().numpy(), drot, file=sys.stderr, flush=True)
+        if _SM_DEBUG:
+            print("SM cmd:", dpos.cpu().numpy(), drot, file=sys.stderr, flush=True)
 
         dz = 0.005
         dpos[dpos.abs() < dz] = 0.0

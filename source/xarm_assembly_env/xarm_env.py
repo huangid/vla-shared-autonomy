@@ -223,7 +223,9 @@ class XArmEnv(DirectRLEnv):
             self.picked_up = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
     def _init_pilot(self):
-        import sys; print("PILOT_MODEL =", repr(self.cfg.pilot_model), file=sys.stderr, flush=True)
+        if self.cfg.vis.verbose:
+            print(f"[XArmEnv] pilot_model={self.cfg.pilot_model!r} pilot_type={self.cfg.pilot_type!r}",
+                  flush=True)
         # For three_blocks, load demos from a local file; otherwise resolve from HuggingFace.
         if self.cfg_task.name == "three_blocks":
             _data_path = self.cfg_task.train_data_path

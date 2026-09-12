@@ -43,10 +43,28 @@ def _to_lerobot_image(img: Any) -> torch.Tensor:
 
 
 class SmolVLA_Pilot:
-    def __init__(self, model_id: str, device: Optional[str] = None):
+    def __init__(self, model_id: str, device: Optional[str] = None,
+                 n_action_steps: Optional[int] = None):
+        """
+        Args:
+            n_action_steps: how many actions of each predicted chunk to execute
+                before re-planning. The model always predicts `chunk_size` steps;
+                this only controls how many are consumed, so it can be lowered at
+                inference WITHOUT retraining. The default (50 = 3.3 s at 15 Hz)
+                means the policy runs open-loop for most of an ~85-step episode
+                and cannot react to a missed grasp; 10-15 re-plans roughly once a
+                second and is usually far more robust in closed loop.
+        """
         self.device = "cuda" if device is None else device
 
         self.policy: SmolVLAPolicy = SmolVLAPolicy.from_pretrained(model_id)
+        if n_action_steps is not None:
+            if n_action_steps > self.policy.config.chunk_size:
+                raise ValueError(
+                    f"n_action_steps={n_action_steps} exceeds chunk_size="
+                    f"{self.policy.config.chunk_size}; the model predicts no more than that."
+                )
+            self.policy.config.n_action_steps = n_action_steps
         self.policy.to(self.device)
         self.policy.eval()
 
@@ -56,18 +74,40 @@ class SmolVLA_Pilot:
             preprocessor_overrides={"device_processor": {"device": self.device}},
         )
 
-    @torch.inference_mode()
-    def act(self, frame: dict[str, Any]) -> torch.Tensor:
-        """preprocess -> select_action -> postprocess. Returns an (1, 8) CPU tensor."""
+    def _prepare(self, frame: dict[str, Any]) -> dict[str, Any]:
+        """Coerce a raw env frame into what the processor pipeline expects.
+
+        Images must arrive as float CHW in [0, 1] — the pipeline itself does not
+        convert, and SmolVLA's `resize_with_pad` fails on uint8 with
+        `upsample_bilinear2d_out_frame not implemented for 'Byte'`.
+        """
         frame = dict(frame)
         for k, v in frame.items():
             if "image" in k:
                 frame[k] = _to_lerobot_image(v)
             elif k != "task":
                 frame[k] = torch.as_tensor(v).float()
-        processed = self.preprocessor(frame)
+        return frame
+
+    @torch.inference_mode()
+    def act(self, frame: dict[str, Any]) -> torch.Tensor:
+        """preprocess -> select_action -> postprocess. Returns an (1, 8) CPU tensor."""
+        processed = self.preprocessor(self._prepare(frame))
         action = self.policy.select_action(processed)
         return self.postprocessor(action)
+
+    @torch.inference_mode()
+    def predict_chunk(self, frame: dict[str, Any]) -> torch.Tensor:
+        """Full predicted action chunk in real units: (n_action_steps, 8), on CPU.
+
+        Diagnostic counterpart to `act()` — same preprocessing, but returns the
+        whole plan instead of dequeuing one step. Leaves the action queue clear.
+        """
+        self.policy.reset()
+        processed = self.preprocessor(self._prepare(frame))
+        chunk = self.policy.predict_action_chunk(processed)
+        self.policy.reset()
+        return self.postprocessor(chunk.squeeze(0)).float().cpu()
 
     def reset(self):
         """Clear the action-chunk queue. Call at every episode boundary."""

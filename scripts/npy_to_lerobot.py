@@ -29,6 +29,7 @@ Two output modes:
 """
 import argparse
 import json
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -142,6 +143,9 @@ def main():
     parser.add_argument("--image_dtype", type=str, choices=["video", "image"], default="video")
     parser.add_argument("--robot_type", type=str, default="xarm7")
     parser.add_argument("--push_to_hub", action="store_true", default=False)
+    parser.add_argument("--overwrite", action="store_true", default=False,
+                        help="Delete --root first. LeRobotDataset.create() refuses to write into an "
+                             "existing directory, so a partial/failed run otherwise blocks every retry.")
     args = parser.parse_args()
 
     demos = np.load(args.input, allow_pickle=True).item()
@@ -179,6 +183,10 @@ def main():
             "names": ["height", "width", "channels"],
         }
         print(f"[INFO] images: {image_key}  {w}x{h}  dtype={args.image_dtype}")
+
+    if args.overwrite and args.root and Path(args.root).exists():
+        print(f"[INFO] removing existing dataset at {args.root}")
+        shutil.rmtree(args.root)
 
     dataset = LeRobotDataset.create(
         repo_id=args.repo_id,
