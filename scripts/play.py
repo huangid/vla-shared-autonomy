@@ -38,6 +38,10 @@ parser.add_argument("--target_color", type=str, default=None, choices=["red", "g
                          "be drawn at random. One episode per launch means the dataset's colour balance "
                          "is left to chance and drifts (the first 100 demos came out 46 green / 33 blue "
                          "/ 21 red); use this to top up whichever colour is short.")
+parser.add_argument("--yes", "-y", action="store_true", default=False,
+                    help="Overwrite an existing rollout directory without prompting. Needed when "
+                         "--record runs inside a collection loop, where the interactive prompt "
+                         "would block waiting on stdin.")
 parser.add_argument("--layout_seed", type=int, default=None,
                     help="RandomBlock: reuse ONE block layout for every episode this run. Combine with "
                          "--target_color to record the same scene under different instructions, which "
@@ -172,10 +176,13 @@ def _make_rollout_dir():
 
     if os.path.exists(rollout_path):
         print(f"{_YELLOW}[WARNING]{_RESET} Rollout directory already exists:\n  {rollout_path}")
-        answer = input("Overwrite? [y/N] ").strip().lower()
-        if answer != "y":
-            print("Aborting.")
-            sys.exit(0)
+        if args_cli.yes:
+            print("Overwriting (--yes).")
+        else:
+            answer = input("Overwrite? [y/N] ").strip().lower()
+            if answer != "y":
+                print("Aborting.")
+                sys.exit(0)
         import shutil
         shutil.rmtree(rollout_path)
 
