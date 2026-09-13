@@ -28,7 +28,9 @@ instructions and to locate the RGB frames.
 import argparse
 import hashlib
 import json
+import os
 import shutil
+import signal
 from pathlib import Path
 
 import numpy as np
@@ -217,11 +219,25 @@ elif kept == 0:
           "or check that episodes succeeded.")
 else:
     output.parent.mkdir(parents=True, exist_ok=True)
-    np.save(args.output, data, allow_pickle=True)
+    all_meta = {**existing_meta, **new_meta}
+
+    # The .npy and its .tasks.json sidecar must change together: npy_to_lerobot
+    # takes each episode's instruction from the sidecar by index, so a sidecar that
+    # lags the .npy mislabels every later episode. Write both to temp files, then
+    # swap them in with Ctrl-C ignored, so an interrupt (e.g. from a collection
+    # loop) can neither truncate the dataset nor leave the pair out of sync.
+    npy_tmp = output.with_name(output.name + ".tmp.npy")
+    tasks_tmp = tasks_path.with_name(tasks_path.name + ".tmp")
+    prev_sigint = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        np.save(npy_tmp, data, allow_pickle=True)
+        tasks_tmp.write_text(json.dumps({str(k): v for k, v in sorted(all_meta.items())}, indent=2))
+        os.replace(npy_tmp, output)
+        os.replace(tasks_tmp, tasks_path)
+    finally:
+        signal.signal(signal.SIGINT, prev_sigint)
+
     print(f"Added {kept} new episodes. Total now: {len(data)} in {args.output}")
     if not args.no_frames:
         print(f"Copied RGB frames into {frames_root}/")
-
-    all_meta = {**existing_meta, **new_meta}
-    tasks_path.write_text(json.dumps({str(k): v for k, v in sorted(all_meta.items())}, indent=2))
     print(f"Wrote per-episode task/provenance for {len(all_meta)} episodes to {tasks_path}")

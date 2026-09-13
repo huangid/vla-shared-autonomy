@@ -415,7 +415,7 @@ predicts the demonstrated trajectory and the instruction is redundant — the
 policy can score well on training data without ever reading it. Repeating a
 layout across colours removes that shortcut.
 
-**2c. Batch collection loop.** Run this **once** — it performs all 150
+**2c. Batch collection.** Run this **once** — it performs all 150
 record-and-convert cycles itself (50 layouts x 3 colours), taking the dataset from
 100 to **250 demos**. Your only job is to drive each episode with the SpaceMouse as
 it appears; when the episode ends the process exits and the next one launches
@@ -423,38 +423,40 @@ automatically.
 
 ```bash
 cd ~/vla-shared-autonomy
-trap 'echo "stopping"; exit 130' INT
-for L in $(seq 1 50); do
-  for C in red green blue; do
-    echo "=== layout $L / $C ==="
-    python scripts/play.py --task RandomBlock --pilot SpaceMousePilot \
-      --num_envs 1 --record --yes --layout_seed $L --target_color $C || exit 1
-    python scripts/convert_demos.py \
-      --rollout_dir logs/rollouts/eval_RandomBlock_with_SpaceMousePilot \
-      --output logs/data/randomblock_demos.npy --append || exit 1
-  done
-done
+scripts/collect_randomblock.sh 1 50
 ```
 
-`--yes` skips the rollout-directory overwrite prompt, which would otherwise block
-on stdin and hang the loop. The `trap` makes a single Ctrl-C exit the whole loop —
-without it, Ctrl-C kills only the current `play.py` and bash continues to the next
-launch.
+What the script handles, so a long session can't silently go wrong:
+
+- **Failed demos are re-recorded.** A missed grasp times out after 60 s and is
+  dropped by `convert_demos.py`. The script checks the dataset actually grew and,
+  if not, records the same layout/colour again — so no layout ends up missing a
+  colour. After 3 misses in a row it asks: retry, skip, or quit.
+- **Ctrl-C stops cleanly** after the current step and prints the exact resume
+  command, e.g. `scripts/collect_randomblock.sh 12 50 blue`. It never closes your
+  terminal (a pasted `for` loop with `exit` in it does).
+- **The dataset save cannot be interrupted.** `convert_demos.py` writes the `.npy`
+  and its `.tasks.json` sidecar to temp files and swaps both in with Ctrl-C ignored.
+  A half-written save would truncate the dataset or leave the sidecar out of step
+  with it, which silently mislabels every later episode's instruction.
+- **Pre-flight and backup.** It refuses to start if the SpaceMouse is unplugged or
+  another `play.py` holds it, and copies the `.npy` + sidecar into
+  `logs/data/backups/<timestamp>/` before recording anything.
+- **It doesn't depend on `play.py`'s exit code**, only on whether the demo was saved.
 
 Budget ~4.5–5 h for 150 demos: Isaac restarts on every episode (~40–60 s), which
-is unavoidable with one-episode-per-launch. To split it across sittings, change
-only the range — each chunk appends to the same dataset:
+is unavoidable with one-episode-per-launch. To split it across sittings:
 
-| Sitting | Range | New demos |
+| Sitting | Command | New demos |
 |---|---|---|
-| 1 | `seq 1 17` | 51 |
-| 2 | `seq 18 34` | 51 |
-| 3 | `seq 35 50` | 48 |
+| 1 | `scripts/collect_randomblock.sh 1 17` | 51 |
+| 2 | `scripts/collect_randomblock.sh 18 34` | 51 |
+| 3 | `scripts/collect_randomblock.sh 35 50` | 48 |
 
-Do not reuse a range: the same `layout_seed` reproduces the same scene. If you stop
-mid-range, start the next sitting from the layout you were on; that layout is
-re-recorded from red, which adds one or two harmless extra demos. With the first
-100 demos at 46 green / 33 blue / 21 red, the full batch ends near 96 / 83 / 71.
+Each sitting appends to the same dataset. Do not reuse a range: the same
+`layout_seed` reproduces the same scene. If you stop early, use the resume command
+the script prints. With the first 100 demos at 46 green / 33 blue / 21 red, the full
+batch ends at 96 / 83 / 71.
 
 > **This does not narrow where blocks spawn.** Within one layout the three
 > episodes target three *different* blocks, so 50 layouts x 3 colours yields 150
