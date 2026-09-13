@@ -415,15 +415,16 @@ predicts the demonstrated trajectory and the instruction is redundant — the
 policy can score well on training data without ever reading it. Repeating a
 layout across colours removes that shortcut.
 
-**2c. Batch collection loop.** Run this **once** — it performs all 90
-record-and-convert cycles itself. Your only job is to drive each episode with the
-SpaceMouse as it appears; when the episode ends the process exits and the next one
-launches automatically.
+**2c. Batch collection loop.** Run this **once** — it performs all 150
+record-and-convert cycles itself (50 layouts x 3 colours), taking the dataset from
+100 to **250 demos**. Your only job is to drive each episode with the SpaceMouse as
+it appears; when the episode ends the process exits and the next one launches
+automatically.
 
 ```bash
 cd ~/vla-shared-autonomy
 trap 'echo "stopping"; exit 130' INT
-for L in $(seq 1 30); do
+for L in $(seq 1 50); do
   for C in red green blue; do
     echo "=== layout $L / $C ==="
     python scripts/play.py --task RandomBlock --pilot SpaceMousePilot \
@@ -440,15 +441,25 @@ on stdin and hang the loop. The `trap` makes a single Ctrl-C exit the whole loop
 without it, Ctrl-C kills only the current `play.py` and bash continues to the next
 launch.
 
-Budget ~2.5–3 h for 90 demos: Isaac restarts on every episode (~40–60 s), which is
-unavoidable with one-episode-per-launch. To split it across sittings, change the
-range (`seq 1 10`, then `seq 11 20`, …) — each chunk appends to the same dataset.
-Do not reuse a range: the same `layout_seed` reproduces the same scene.
+Budget ~4.5–5 h for 150 demos: Isaac restarts on every episode (~40–60 s), which
+is unavoidable with one-episode-per-launch. To split it across sittings, change
+only the range — each chunk appends to the same dataset:
+
+| Sitting | Range | New demos |
+|---|---|---|
+| 1 | `seq 1 17` | 51 |
+| 2 | `seq 18 34` | 51 |
+| 3 | `seq 35 50` | 48 |
+
+Do not reuse a range: the same `layout_seed` reproduces the same scene. If you stop
+mid-range, start the next sitting from the layout you were on; that layout is
+re-recorded from red, which adds one or two harmless extra demos. With the first
+100 demos at 46 green / 33 blue / 21 red, the full batch ends near 96 / 83 / 71.
 
 > **This does not narrow where blocks spawn.** Within one layout the three
-> episodes target three *different* blocks, so 30 layouts x 3 colours yields 90
-> distinct reach targets — as many as 90 fully random demos. Binned 5x5 over the
-> spawn rectangle, seeds 1–30 leave no empty cell (x 0.300–0.438, y -0.148–0.149).
+> episodes target three *different* blocks, so 50 layouts x 3 colours yields 150
+> distinct reach targets — as many as 150 fully random demos. Binned 5x5 over the
+> spawn rectangle, seeds 1–50 leave no empty cell (x 0.300–0.438, y -0.148–0.149).
 > What repeats is the *scene*, which is the point: the same image now maps to three
 > different trajectories, so only the instruction can resolve them.
 
