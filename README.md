@@ -731,7 +731,19 @@ Train with the step 6 command, changing only these arguments:
 - **`--save_freq=5000`** halves the checkpoint count (8 x ~1.3 GB) to fit on disk.
 - **`--num_workers=12`** speeds up data loading only; it does not change the result.
 
-Evaluate one checkpoint at a time:
+When training prints `End of training`, **watch the model** — opens the sim window,
+new random layouts every run, Ctrl-C to stop:
+
+```bash
+python scripts/eval_smolvla.py \
+  --checkpoint outputs/train/rb_smolvla_v5/checkpoints/040000/pretrained_model \
+  --num_episodes 5 --n_action_steps 5 --max_steps 150
+```
+
+Keep `--n_action_steps 5` even just to watch: without it the robot executes 50 steps
+before looking again and misses far more than it really would.
+
+Then **score it** against v4, one checkpoint at a time:
 
 ```bash
 python scripts/eval_smolvla.py \
