@@ -545,10 +545,15 @@ label desync.
 ```bash
 python scripts/npy_to_lerobot.py \
   --input logs/data/randomblock_demos.npy \
-  --repo_id local/randomblock_vla \
-  --root logs/lerobot/randomblock_vla \
+  --repo_id local/randomblock_vla_250 \
+  --root logs/lerobot/randomblock_vla_250 \
   --images --overwrite
 ```
+
+Give each dataset build its own `--repo_id` / `--root` (here `_250` for the 250-demo
+set) rather than overwriting the previous one, so older checkpoints stay reproducible.
+Sanity-check the result: `logs/lerobot/randomblock_vla_250/meta/info.json` should
+report `total_episodes: 250`.
 
 `--images` reads the sidecar, attaches `observation.images.front` from the copied
 frames, and uses the per-episode instruction as the `task` (it also drops
@@ -564,24 +569,47 @@ DiffusionPolicy dataset.
 - `--image_dtype video` (default) needs ffmpeg; use `--image_dtype image` to
   store PNGs instead — larger on disk, trains the same.
 
-Sizing guidance from the SmolVLA paper: ~50 demos per variation was enough and 25
-was not. **~100 total** across the three colours is a reasonable target; collect
-more if eval comes back weak on a particular colour.
+Sizing: the SmolVLA paper found ~50 demos per variation enough and 25 not. On this
+task **100 demos was not enough** — with blocks, distractors and target all
+randomized, the model scored 0/20. The 250-demo set (100 random layouts + 50
+layouts x 3 colours from step 2c) reached 11/20. See the results table in step 7.
 
 **6. Finetune SmolVLA** on that dataset (LeRobot's built-in trainer, no custom script):
 
 ```bash
+# keep the machine awake for a multi-hour run
+gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing'
+
 lerobot-train \
   --policy.path=lerobot/smolvla_base \
   --policy.push_to_hub=false \
-  --dataset.repo_id=local/randomblock_vla \
-  --dataset.root=logs/lerobot/randomblock_vla \
+  --dataset.repo_id=local/randomblock_vla_250 \
+  --dataset.root=logs/lerobot/randomblock_vla_250 \
   --dataset.video_backend=pyav \
+  --dataset.image_transforms.enable=true \
+  --dataset.image_transforms.tfs='{"brightness":{"weight":1.0,"type":"ColorJitter","kwargs":{"brightness":[0.8,1.2]}},"contrast":{"weight":1.0,"type":"ColorJitter","kwargs":{"contrast":[0.8,1.2]}},"saturation":{"weight":1.0,"type":"ColorJitter","kwargs":{"saturation":[0.6,1.4]}},"hue":{"weight":1.0,"type":"ColorJitter","kwargs":{"hue":[-0.04,0.04]}},"sharpness":{"weight":1.0,"type":"SharpnessJitter","kwargs":{"sharpness":[0.6,1.4]}}}' \
   --rename_map='{"observation.images.front": "observation.images.camera1"}' \
-  --batch_size=64 --steps=20000 \
-  --output_dir=outputs/train/rb_smolvla --job_name=rb_smolvla \
-  --policy.device=cuda
+  --batch_size=64 --steps=30000 --save_freq=2500 \
+  --output_dir=outputs/train/rb_smolvla_v4 --job_name=rb_smolvla_v4 \
+  --policy.device=cuda 2>&1 | tee /tmp/train_v4.log
 ```
+
+This is the exact configuration that produced `rb_smolvla_v4` (and, apart from the
+dataset and step count, `rb_smolvla_v3`).
+
+- **`--dataset.image_transforms.*`** turns on photometric augmentation (brightness,
+  contrast, saturation, small hue shift, sharpness). LeRobot's default transform set
+  also includes a random affine; it is deliberately left out because shifting the
+  image moves the blocks relative to the arm, which corrupts the very positions the
+  policy must reach. The CLI only accepts `tfs` as a whole JSON dict —
+  `--dataset.image_transforms.tfs.affine.weight=0` is rejected.
+- **`--steps=30000`** scales with data: v3's best checkpoint was ~67 epochs over 100
+  demos, and the same epoch count over 250 demos (24k frames) is ~25k steps.
+- **`--save_freq=2500`** keeps intermediate checkpoints. The last one is not
+  necessarily the best (v3 peaked at 10k of 20k), so step 7 sweeps several.
+- **`--output_dir` must not exist** unless resuming; `lerobot-train` refuses to write
+  into an existing run.
+- Each checkpoint is ~1.1 GB; 12 checkpoints need ~13 GB free.
 
 - **`--rename_map`** is required. `smolvla_base` declares three cameras
   (`camera1/2/3`); our dataset has one (`front`). Validation passes when the
@@ -610,20 +638,68 @@ lerobot-train \
   `uv pip install num2words` (otherwise it fails with
   `ImportError: Package num2words is required to run SmolVLM processor`).
 
-~20k steps ≈ 4 h on one A100; the RTX 5090 is comparable. Checkpoints land in
-`outputs/train/rb_smolvla/checkpoints/`.
+Measured speed on this workstation: ~0.65 s/step, so 20k steps ≈ 3.5 h and 30k ≈
+5.5 h. The log line shows where the time goes — `data_s` (video decode) exceeds
+`updt_s` (GPU), so the GPU is mostly waiting. Adding `--num_workers=12` (default 4;
+the machine has 20 cores) should shorten it without changing the result.
+Checkpoints land in `outputs/train/rb_smolvla_v4/checkpoints/`.
 
 **7. Evaluate** — N fresh episodes, no human, SmolVLA driving:
 
 ```bash
 python scripts/eval_smolvla.py \
-  --checkpoint outputs/train/rb_smolvla/checkpoints/last/pretrained_model \
-  --num_episodes 30
+  --checkpoint outputs/train/rb_smolvla_v4/checkpoints/025000/pretrained_model \
+  --num_episodes 30 --n_action_steps 5 --max_steps 150 --debug_grounding
 ```
 
 Feeds the front-camera RGB + 14D state + instruction to SmolVLA each step, runs
-its 8D absolute action through `XArm-RandomBlock-GuidedDiffusion`, and prints the
-overall + per-colour success rate. That number is the step-1 result.
+its 8D absolute action through `XArm-RandomBlock-GuidedDiffusion`, and prints a
+summary: overall and per-colour success, failure modes, closest fingertip approach,
+and a target-vs-aimed confusion matrix. Layouts are fresh random ones, not the
+training scenes. Opens the sim window; add `--headless` to run without it.
+
+- **`--n_action_steps 5`** matters most. SmolVLA predicts 50 steps per call and by
+  default executes all of them before looking again — 3.3 s blind, more than half an
+  episode, so it cannot correct a grasp that is drifting off. Re-planning every 5
+  steps needs no retraining.
+- **`--max_steps 150`** (10 s) ends a stuck episode instead of waiting out the env's
+  60 s timeout. Successful demos average ~96 steps.
+- **`--debug_grounding`** records which block the first predicted chunk aims at, for
+  the confusion matrix. A strong diagonal means the instruction is being followed.
+- **`--seed N`** fixes the episode sequence. Use the same seed for every checkpoint
+  you compare; omit it for new random layouts each run.
+
+**Pick the checkpoint by sweeping**, all on the same episodes:
+
+```bash
+for ck in v3/010000 v4/015000 v4/020000 v4/025000 v4/030000; do
+  run=${ck%%/*}; step=${ck##*/}
+  python scripts/eval_smolvla.py \
+    --checkpoint outputs/train/rb_smolvla_$run/checkpoints/$step/pretrained_model \
+    --num_episodes 20 --seed 123 --debug_grounding --max_steps 150 --n_action_steps 5 \
+    --headless 2>&1 | tee /tmp/eval_${run}_${step}.log
+done
+```
+
+Results so far (20 episodes, `--seed 123`, `--n_action_steps 5`):
+
+| Model | Demos | Success | Within 1.5 cm | First-chunk grounding | Median closest approach |
+|---|---|---|---|---|---|
+| v3 @ 10k | 100 | 0/20 | 3/20 | 60% | 3.5 cm |
+| v4 @ 15k | 250 | 6/20 | 10/20 | 75% | 1.6 cm |
+| v4 @ 20k | 250 | 7/20 | 10/20 | 70% | 1.5 cm |
+| **v4 @ 25k** | 250 | **11/20** | 9/20 | **90%** | 1.6 cm |
+| v4 @ 30k | 250 | 9/20 | 11/20 | 90% | 1.4 cm |
+
+v4 @ 25k is the current base policy; 25k and 30k are within noise of each other.
+Block choice is essentially solved (90% grounding, no distractor ever binned); every
+v4 failure is "never lifted the target", i.e. grasp precision — which is the partial
+competence the shared-autonomy correction study builds on.
+
+> The "closest approach" figures are slightly unreliable for *successful* episodes:
+> the env auto-resets inside the step that ends an episode, so that final reading
+> compares the reset fingertip against the next episode's blocks. Success rates,
+> failure modes and grounding are unaffected.
 
 ---
 
