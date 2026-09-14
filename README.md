@@ -701,6 +701,50 @@ competence the shared-autonomy correction study builds on.
 > compares the reset fingertip against the next episode's blocks. Success rates,
 > failure modes and grounding are unaffected.
 
+**8. Second round: 400 demos → v5.** Same pipeline as steps 2c–7, with these
+changes:
+
+```bash
+# collect 150 more on NEW layouts (1-50 are already recorded)
+scripts/collect_randomblock.sh 51 100
+
+# build a separate dataset
+python scripts/npy_to_lerobot.py \
+  --input logs/data/randomblock_demos.npy \
+  --repo_id local/randomblock_vla_400 \
+  --root logs/lerobot/randomblock_vla_400 \
+  --images --overwrite
+```
+
+Train with the step 6 command, changing only these arguments:
+
+```bash
+  --dataset.repo_id=local/randomblock_vla_400 \
+  --dataset.root=logs/lerobot/randomblock_vla_400 \
+  --batch_size=64 --steps=40000 --save_freq=5000 --num_workers=12 \
+  --output_dir=outputs/train/rb_smolvla_v5 --job_name=rb_smolvla_v5 \
+  --policy.device=cuda 2>&1 | tee /tmp/train_v5.log
+```
+
+- **`--steps=40000`** keeps the same amount of training per demo: v4 peaked at ~66
+  epochs, which over 400 demos (37k frames) is ~40k steps.
+- **`--save_freq=5000`** halves the checkpoint count (8 x ~1.3 GB) to fit on disk.
+- **`--num_workers=12`** speeds up data loading only; it does not change the result.
+
+Evaluate one checkpoint at a time:
+
+```bash
+python scripts/eval_smolvla.py \
+  --checkpoint outputs/train/rb_smolvla_v5/checkpoints/040000/pretrained_model \
+  --num_episodes 20 --seed 123 --n_action_steps 5 --max_steps 150 --debug_grounding
+```
+
+Keep **`--num_episodes 20 --seed 123`**: those are the episodes in the step 7
+results table, so the score is directly comparable to v4 @ 25k's 11/20. Then swap
+`040000` for `020000`, `025000`, `030000` or `035000` — the final checkpoint is not
+necessarily the best. To run them all unattended instead, use the step 7 sweep loop
+with `for ck in v4/025000 v5/020000 v5/025000 v5/030000 v5/035000 v5/040000`.
+
 ---
 
 *Not the VLA path:* `python scripts/train.py --task XArm-RandomBlock-Residual --pilot kNNPilot --num_envs 128 --headless`
