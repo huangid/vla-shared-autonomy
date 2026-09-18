@@ -754,6 +754,68 @@ results table, so the score is directly comparable to v4 @ 25k's 11/20. Then swa
 necessarily the best. To run them all unattended instead, use the step 7 sweep loop
 with `for ck in v4/025000 v5/020000 v5/025000 v5/030000 v5/035000 v5/040000`.
 
+**9. Shared autonomy: record human corrections.** The study's core step. SmolVLA and
+the SpaceMouse both act on the *same* observation each timestep; the robot executes
+the blend, and all three actions are logged:
+
+```
+a_R    = SmolVLA (the base policy from step 7/8)
+a_H    = you, on the SpaceMouse
+a_exec = alpha * a_R + (1 - alpha) * a_H      <- what actually runs
+```
+
+```bash
+python scripts/shared_autonomy.py \
+  --checkpoint outputs/train/rb_smolvla_v5/checkpoints/025000/pretrained_model \
+  --num_episodes 5 --alpha 0.5
+```
+
+Unlike `play.py`, this runs **several episodes per launch** — no 60 s Isaac restart
+between them. Recording is on by default (`logs/rollouts/shared_autonomy_<task>/`,
+`--no_record` to drive without saving).
+
+- **`--alpha`** (0.5): weight on the *robot*. 1.0 = robot only, 0.0 = human only.
+- **Idle gating (default).** An untouched SpaceMouse reports zero, so blending it in
+  unconditionally would drag the arm toward standing still and fill the log with
+  `a_H = hold` samples that are not corrections. While you are not touching it the
+  robot runs on `a_R` alone; blending starts the moment you push. `--blend_always`
+  disables this.
+- **Gripper** does not average meaningfully, so open/close follows whoever is in
+  charge: you for `--grip_hold_steps` (30) after a button press, the policy otherwise.
+  Both raw values are logged either way.
+- **`--n_action_steps 5`** matches the evaluation protocol; the checkpoint's own
+  default (50) is 3.3 s open-loop and cannot react to a correction.
+- Both actions are computed from `o_t` *before* the step, so `(o_t, a_H, a_R, a_exec)`
+  carries no one-step lag.
+
+Per episode it prints how many steps you intervened on and the median / p90 of
+`d_t = ||a_H - a_R||` — that distribution is how the disagreement threshold `tau`
+gets chosen, once real data exists.
+
+**Build both comparison datasets from the same recording** — identical observations,
+different targets:
+
+```bash
+# D_human: labels = the raw human correction
+python scripts/convert_demos.py --rollout_dir logs/rollouts/shared_autonomy_RandomBlock \
+  --output logs/data/corrections_human.npy --append --action_prefix base_action
+
+# D_blend: labels = the blended action that executed
+python scripts/convert_demos.py --rollout_dir logs/rollouts/shared_autonomy_RandomBlock \
+  --output logs/data/corrections_blend.npy --append --action_prefix exec_action
+```
+
+Then finetune two copies from the *same* checkpoint (step 6 command, with
+`--policy.path=outputs/train/rb_smolvla_v5/checkpoints/025000/pretrained_model`) and
+evaluate both with the step 7 protocol. Selecting only the corrective timesteps by
+`d_t > tau` is not implemented yet: filtering individual steps would break the
+temporal continuity action chunking needs, so it has to operate on contiguous
+segments, sized from the measured `d_t` distribution.
+
+> Not yet exercised against Isaac hardware-in-the-loop. The blend math and the
+> two-dataset conversion are unit-tested; the env/SpaceMouse path is not. Do one
+> `--num_episodes 1` run first and check that `d_t` moves when you push the mouse.
+
 ---
 
 *Not the VLA path:* `python scripts/train.py --task XArm-RandomBlock-Residual --pilot kNNPilot --num_envs 128 --headless`
