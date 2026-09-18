@@ -53,12 +53,19 @@ parser.add_argument("--no_clamp_actions", action="store_true",
                          "workspace. Off by default: the sim clamps every target, so unclamped "
                          "commands (e.g. z below the table) are targets that were never executed.")
 parser.add_argument("--action_prefix", type=str, default="base_action",
-                    choices=["base_action", "exec_action", "policy_action"],
+                    choices=["base_action", "exec_action", "policy_action", "human", "blend"],
                     help="Which recorded action stream becomes the BC target. Shared-autonomy "
-                         "rollouts (scripts/shared_autonomy.py) log all three, so the same "
-                         "recording yields D_human (base_action = the raw human command) and "
-                         "D_blend (exec_action = the blended action actually executed). "
-                         "play.py rollouts only have base_action.")
+                         "rollouts (scripts/shared_autonomy.py) log all of them. The study pair "
+                         "is `human` (D_human) vs `blend` (D_blend): both take the policy's own "
+                         "action on non-corrective steps and differ ONLY on the selected "
+                         "corrective ones — a_H for human, a_exec for blend. The bare "
+                         "`base_action` / `exec_action` / `policy_action` take that stream on "
+                         "every step; play.py rollouts only have base_action.")
+parser.add_argument("--angle_threshold", type=float, default=0.0,
+                    help="With --action_prefix human/blend: a step counts as corrective only if "
+                         "the human was intervening AND the logged direction disagreement is at "
+                         "least this many degrees. 0 keeps every intervention. Use the SAME value "
+                         "for both datasets, or they differ by more than the label under test.")
 parser.add_argument("--keep_last_step", action="store_true",
                     help="Keep the final recorded timestep. Off by default because DirectRLEnv "
                          "resets inside the step that reports `done` and _get_observations() runs "
@@ -98,13 +105,33 @@ OBS_KEYS = [
 # --action_prefix selects the stream: base_action (human / teleop pilot), exec_action
 # (the blend that actually ran) or policy_action (the VLA's own proposal). Only
 # shared-autonomy rollouts carry the latter two.
-_P = args.action_prefix
+#
+# `human` and `blend` are per-timestep rather than a single stream, for two reasons.
+#
+# First, a shared-autonomy recording holds base_action = "hold this pose" on every step
+# the human was NOT touching the SpaceMouse — ~78% of steps in the first session.
+# Training on those as human intent would teach the policy to stop moving.
+#
+# Second, both datasets must fall back to the SAME thing off the selected steps, or
+# they would differ by more than the label under test. Taking exec_action on every step
+# for D_blend leaves it disagreeing with D_human on interventions that the threshold
+# excluded. So: selected step -> a_H (human) / a_exec (blend); every other step -> the
+# policy's own action, identically in both. The two datasets then share every
+# observation and differ on exactly the selected corrective steps.
+_SEL_MODE = args.action_prefix in ("human", "blend")
+_HUMAN_MODE = _SEL_MODE            # buffers/meta handling is the same for both
+_P = {"human": "base_action", "blend": "exec_action"}.get(args.action_prefix,
+                                                         args.action_prefix)
 ACT_SRC_KEYS = [f"{_P}.fingertip_pos", f"{_P}.fingertip_quat", f"{_P}.gripper"]
+_POLICY_KEYS = ["policy_action.fingertip_pos", "policy_action.fingertip_quat",
+                "policy_action.gripper"]
 # Target keys the kNN format expects
 ACT_DST_KEYS = ["action.fingertip_pos", "action.fingertip_quat", "action.gripper"]
-ALL_SRC_KEYS = OBS_KEYS + ACT_SRC_KEYS
-if _P != "base_action":
-    print(f"[INFO] BC target stream: {_P}.*")
+ALL_SRC_KEYS = OBS_KEYS + ACT_SRC_KEYS + (_POLICY_KEYS if _HUMAN_MODE else [])
+if args.action_prefix != "base_action":
+    print(f"[INFO] BC target stream: {args.action_prefix}"
+          + (f" (human command where intervening and angle >= {args.angle_threshold:.0f} deg, "
+             f"policy action elsewhere)" if _HUMAN_MODE else ".*"))
 
 data = {}
 start_idx = 0
@@ -136,12 +163,27 @@ for ep_dir in ep_dirs:
 
     buffers = {k: [] for k in ALL_SRC_KEYS}
     kept_step_idx = []  # original timestep index of each kept step, for frame alignment
+    n_human_labelled = 0
     for t, sf in enumerate(step_files):
         entry = json.loads(sf.read_text())
         if not all(k in entry for k in ALL_SRC_KEYS):
             continue  # skip incomplete timesteps (e.g. terminal step)
-        for k in ALL_SRC_KEYS:
-            buffers[k].append(entry[k])
+        if _HUMAN_MODE:
+            # angle < 0 means "undefined" (no commanded motion to compare), not
+            # "disagreement of 0" — such a step counts only when no threshold is asked for.
+            _ang = entry.get("disagreement_angle_deg", -1.0)
+            corrective = bool(entry.get("intervening", False)) and (
+                _ang >= args.angle_threshold if _ang >= 0.0 else args.angle_threshold <= 0.0)
+            n_human_labelled += int(corrective)
+            src = ACT_SRC_KEYS if corrective else _POLICY_KEYS
+            for k_dst, k_src in zip(ACT_SRC_KEYS, src):
+                buffers[k_dst].append(entry[k_src])
+            for k in OBS_KEYS + _POLICY_KEYS:
+                if k not in ACT_SRC_KEYS:
+                    buffers[k].append(entry[k])
+        else:
+            for k in ALL_SRC_KEYS:
+                buffers[k].append(entry[k])
         kept_step_idx.append(t)
 
     # Drop the terminal sample: DirectRLEnv.step() calls _reset_idx() before
@@ -196,6 +238,8 @@ for ep_dir in ep_dirs:
         "steps": len(kept_step_idx),
         "fingerprint": fingerprint,
     }
+    if _HUMAN_MODE:
+        entry_meta["human_labelled_steps"] = n_human_labelled
     for key in ("instruction", "block_xy", "target_idx"):
         if key in ep_stats:
             entry_meta["task" if key == "instruction" else key] = ep_stats[key]
