@@ -133,6 +133,21 @@ def policy_state(env_u):
     ], dim=-1)
 
 
+def current_qpos(env_u):
+    """7D arm joint vector for the log.
+
+    `qpos_targets` is created inside _pre_physics_step, so it does not exist before
+    the first step of the run — and we record *before* stepping. Fall back to the
+    measured joint positions, which is the same quantity one control cycle earlier.
+    (Nothing downstream trains on obs.qpos; convert_demos' OBS_KEYS excludes it.)
+    """
+    for attr in ("qpos_targets", "joint_pos"):
+        v = getattr(env_u, attr, None)
+        if v is not None:
+            return v[0, 0:7].detach().cpu().numpy()
+    return np.zeros(7, dtype=np.float32)
+
+
 def build_frame(env_u, image_key):
     return {
         image_key: current_rgb(env_u),
@@ -290,7 +305,7 @@ def run(env_cfg, agent_cfg):
             if rollout_path is not None:
                 buffers.append(timestep_record(
                     obs_np, a_h.cpu().numpy(), a_r.cpu().numpy(), a_exec.cpu().numpy(),
-                    env_u.qpos_targets[0].detach().cpu().numpy(), d_t, intervening))
+                    current_qpos(env_u), d_t, intervening))
                 frames.append(rgb.cpu().numpy().astype(np.uint8))
 
             with torch.inference_mode():
