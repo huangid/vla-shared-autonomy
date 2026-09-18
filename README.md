@@ -861,6 +861,19 @@ for ck in rb_smolvla_v5/025000 ft_human/003000 ft_blend/003000; do
 done
 ```
 
+To *watch* any of the three instead, drop `--headless` and run a few episodes:
+
+```bash
+python scripts/eval_smolvla.py \
+  --checkpoint outputs/train/ft_human/checkpoints/003000/pretrained_model \
+  --num_episodes 5 --seed 77 --n_action_steps 5 --max_steps 150
+```
+
+Pass the **same `--seed`** to every model so they face identical layouts — without it
+each run draws new scenes and watching them tells you nothing comparative. Omit
+`--seed` entirely for fresh random layouts. Five episodes shows whether a model looks
+sane or broken; it cannot rank them.
+
 The policy drives alone here — no SpaceMouse, no blending. Use **50 episodes**: at 20
 the standard error is ~11%, enough to hide any moderate effect; 50 brings it to ~7%.
 Compare both finetunes at the *same* step rather than each one's best checkpoint,
