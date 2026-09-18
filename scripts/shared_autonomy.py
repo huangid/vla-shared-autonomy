@@ -201,6 +201,37 @@ def make_rollout_dir():
     return path
 
 
+def disagreement(a_h, a_r, fingertip):
+    """How much the human and the policy disagree at this timestep.
+
+    Both actions are absolute targets, but they live on different scales: the human's
+    is the current pose plus one teleop increment (a few mm), while the policy's is a
+    waypoint that can be 5-15 cm ahead. So the raw ``||a_H - a_R||`` is dominated by
+    the policy's lookahead — measured on a real episode it was *larger* while the
+    human was idle (11.9 cm) than while actively correcting (9.6 cm), i.e. it does
+    not measure disagreement at all.
+
+    What is comparable is the direction each one wants to move from where the arm is
+    now. Returns (raw, angle_deg, mag_h, mag_r):
+      raw       ||a_H - a_R||, kept for continuity with the earlier logs
+      angle_deg angle between the two intended displacements — the useful signal.
+                **-1.0 means undefined**, not "maximum disagreement": the human (or
+                the policy) commanded no motion, so there is no direction to compare.
+                Filter these out before thresholding; `intervening` marks the same
+                steps for the human side.
+      mag_h/r   how far each wants to travel, in metres
+    """
+    u_h = a_h[0:3] - fingertip
+    u_r = a_r[0:3] - fingertip
+    mag_h = float(np.linalg.norm(u_h))
+    mag_r = float(np.linalg.norm(u_r))
+    raw = float(np.linalg.norm(a_h[0:3] - a_r[0:3]))
+    if mag_h < 1e-6 or mag_r < 1e-6:
+        return raw, -1.0, mag_h, mag_r
+    cos = float(np.clip(np.dot(u_h, u_r) / (mag_h * mag_r), -1.0, 1.0))
+    return raw, float(np.degrees(np.arccos(cos))), mag_h, mag_r
+
+
 def timestep_record(obs, a_h, a_r, a_exec, qpos, d_t, intervening):
     """One logged timestep. obs.* / base_action.* / action.* match play.py's layout.
 
@@ -230,7 +261,10 @@ def timestep_record(obs, a_h, a_r, a_exec, qpos, d_t, intervening):
         "action.fingertip_quat":       a_exec[3:7].tolist(),
         "action.gripper":              a_exec[7:8].tolist(),
         "action.qpos":                 qpos.tolist(),
-        "disagreement":                float(d_t),
+        "disagreement":                float(d_t[0]),     # ||a_H - a_R|| (scale-confounded)
+        "disagreement_angle_deg":      float(d_t[1]),     # angle between intended displacements; -1 = undefined
+        "human_travel":                float(d_t[2]),     # ||a_H - fingertip||, m
+        "policy_travel":               float(d_t[3]),     # ||a_R - fingertip||, m
         "intervening":                 bool(intervening),
     }
 
@@ -299,19 +333,21 @@ def run(env_cfg, agent_cfg):
             prev_grip_cmd = float(a_h[7])
 
             intervening = args_cli.blend_always or not bool(getattr(human, "is_idle", True))
-            d_t = float(torch.linalg.vector_norm(a_h[0:3] - a_r[0:3]))
+            d_t = disagreement(a_h.cpu().numpy(), a_r.cpu().numpy(),
+                               env_u.fingertip_midpoint_pos[0].cpu().numpy())
             a_exec = blend(a_r, a_h, alpha, steps < grip_owner_until) if intervening else a_r.clone()
 
             if rollout_path is not None:
                 buffers.append(timestep_record(
                     obs_np, a_h.cpu().numpy(), a_r.cpu().numpy(), a_exec.cpu().numpy(),
                     current_qpos(env_u), d_t, intervening))
+            # (d_t = (raw, angle_deg, human_travel, policy_travel) from disagreement())
                 frames.append(rgb.cpu().numpy().astype(np.uint8))
 
             with torch.inference_mode():
                 obs_dict, _rew, terminated, truncated, _info = env.step(a_exec.view(1, -1))
             steps += 1
-            print(f"\r[{ep_name}] step {steps:4d}  d_t {d_t*100:5.1f} cm  "
+            print(f"\r[{ep_name}] step {steps:4d}  angle {d_t[1]:5.1f}deg  raw {d_t[0]*100:5.1f}cm  "
                   f"{'HUMAN' if intervening else 'robot'}   ", end="", flush=True)
 
             if bool((terminated | truncated)[0].item()):
@@ -320,11 +356,15 @@ def run(env_cfg, agent_cfg):
                 break
 
         n_corr = sum(1 for b in buffers if b["intervening"])
-        ds = [b["disagreement"] for b in buffers if b["intervening"]]
+        ang = [b["disagreement_angle_deg"] for b in buffers
+               if b["intervening"] and b["disagreement_angle_deg"] >= 0.0]
+        raw = [b["disagreement"] for b in buffers if b["intervening"]]
         print(f"\n[{ep_name}] {'SUCCESS' if success else 'fail'} in {steps} steps | "
               f"human intervened on {n_corr}/{steps} steps"
-              + (f" | disagreement median {np.median(ds)*100:.1f} cm, "
-                 f"p90 {np.percentile(ds, 90)*100:.1f} cm" if ds else ""))
+              + (f"\n    direction disagreement while intervening: median {np.median(ang):.0f}deg, "
+                 f"p90 {np.percentile(ang, 90):.0f}deg   (raw ||a_H-a_R|| median "
+                 f"{np.median(raw) * 100:.1f} cm — scale-confounded, see disagreement())"
+                 if ang else ""))
 
         if rollout_path is not None:
             ep_dir = os.path.join(rollout_path, ep_name)
