@@ -52,6 +52,13 @@ parser.add_argument("--no_clamp_actions", action="store_true",
                     help="Store the raw pilot command instead of clamping it to the executable "
                          "workspace. Off by default: the sim clamps every target, so unclamped "
                          "commands (e.g. z below the table) are targets that were never executed.")
+parser.add_argument("--action_prefix", type=str, default="base_action",
+                    choices=["base_action", "exec_action", "policy_action"],
+                    help="Which recorded action stream becomes the BC target. Shared-autonomy "
+                         "rollouts (scripts/shared_autonomy.py) log all three, so the same "
+                         "recording yields D_human (base_action = the raw human command) and "
+                         "D_blend (exec_action = the blended action actually executed). "
+                         "play.py rollouts only have base_action.")
 parser.add_argument("--keep_last_step", action="store_true",
                     help="Keep the final recorded timestep. Off by default because DirectRLEnv "
                          "resets inside the step that reports `done` and _get_observations() runs "
@@ -88,10 +95,16 @@ OBS_KEYS = [
 # (obs_t, base_action_t) is the correctly paired BC sample. (The recording also stores
 # action.* = what the env executed during step t, but that derives from base_action_{t-1}
 # and is therefore lagged by one — do not use it as the BC target.)
-ACT_SRC_KEYS = ["base_action.fingertip_pos", "base_action.fingertip_quat", "base_action.gripper"]
+# --action_prefix selects the stream: base_action (human / teleop pilot), exec_action
+# (the blend that actually ran) or policy_action (the VLA's own proposal). Only
+# shared-autonomy rollouts carry the latter two.
+_P = args.action_prefix
+ACT_SRC_KEYS = [f"{_P}.fingertip_pos", f"{_P}.fingertip_quat", f"{_P}.gripper"]
 # Target keys the kNN format expects
 ACT_DST_KEYS = ["action.fingertip_pos", "action.fingertip_quat", "action.gripper"]
 ALL_SRC_KEYS = OBS_KEYS + ACT_SRC_KEYS
+if _P != "base_action":
+    print(f"[INFO] BC target stream: {_P}.*")
 
 data = {}
 start_idx = 0
