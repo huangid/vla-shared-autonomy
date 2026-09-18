@@ -869,18 +869,22 @@ cd ~/vla-shared-autonomy
 # base policy (what the finetunes started from)
 python scripts/eval_smolvla.py \
   --checkpoint outputs/train/rb_smolvla_v5/checkpoints/025000/pretrained_model \
-  --num_episodes 5 --seed 77 --n_action_steps 5 --max_steps 150
+  --num_episodes 5 --n_action_steps 5 --max_steps 150
 
 # trained on the raw human corrections
 python scripts/eval_smolvla.py \
   --checkpoint outputs/train/ft_human/checkpoints/003000/pretrained_model \
-  --num_episodes 5 --seed 77 --n_action_steps 5 --max_steps 150
+  --num_episodes 5 --n_action_steps 5 --max_steps 150
 
 # trained on the blended executed actions
 python scripts/eval_smolvla.py \
   --checkpoint outputs/train/ft_blend/checkpoints/003000/pretrained_model \
-  --num_episodes 5 --seed 77 --n_action_steps 5 --max_steps 150
+  --num_episodes 5 --n_action_steps 5 --max_steps 150
 ```
+
+As written, each run draws fresh random layouts. Add the same `--seed N` to all three
+to put them on identical scenes — necessary if you want to compare them by eye rather
+than just check that each one behaves sanely.
 
 Pass the **same `--seed`** to every model so they face identical layouts — without it
 each run draws new scenes and watching them tells you nothing comparative. Omit
