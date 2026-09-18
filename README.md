@@ -861,11 +861,24 @@ for ck in rb_smolvla_v5/025000 ft_human/003000 ft_blend/003000; do
 done
 ```
 
-To *watch* any of the three instead, drop `--headless` and run a few episodes:
+To *watch* the three instead, drop `--headless` and run a few episodes each:
 
 ```bash
+cd ~/vla-shared-autonomy
+
+# base policy (what the finetunes started from)
+python scripts/eval_smolvla.py \
+  --checkpoint outputs/train/rb_smolvla_v5/checkpoints/025000/pretrained_model \
+  --num_episodes 5 --seed 77 --n_action_steps 5 --max_steps 150
+
+# trained on the raw human corrections
 python scripts/eval_smolvla.py \
   --checkpoint outputs/train/ft_human/checkpoints/003000/pretrained_model \
+  --num_episodes 5 --seed 77 --n_action_steps 5 --max_steps 150
+
+# trained on the blended executed actions
+python scripts/eval_smolvla.py \
+  --checkpoint outputs/train/ft_blend/checkpoints/003000/pretrained_model \
   --num_episodes 5 --seed 77 --n_action_steps 5 --max_steps 150
 ```
 
