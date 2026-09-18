@@ -793,24 +793,37 @@ Per episode it prints how many steps you intervened on and the median / p90 of
 gets chosen, once real data exists.
 
 **Build both comparison datasets from the same recording** — identical observations,
-different targets:
+differing only on the selected corrective steps:
 
 ```bash
-# D_human: labels = the raw human correction
-python scripts/convert_demos.py --rollout_dir logs/rollouts/shared_autonomy_RandomBlock \
-  --output logs/data/corrections_human.npy --append --action_prefix base_action
+# repeat per session dir; --append merges them
+for M in human blend; do
+  python scripts/convert_demos.py --rollout_dir logs/rollouts/shared_autonomy_s2 \
+    --output logs/data/corrections_$M.npy --append --action_prefix $M --angle_threshold 0
+done
 
-# D_blend: labels = the blended action that executed
-python scripts/convert_demos.py --rollout_dir logs/rollouts/shared_autonomy_RandomBlock \
-  --output logs/data/corrections_blend.npy --append --action_prefix exec_action
+python scripts/npy_to_lerobot.py --input logs/data/corrections_human.npy \
+  --repo_id local/corrections_human --root logs/lerobot/corrections_human --images --overwrite
 ```
 
-Then finetune two copies from the *same* checkpoint (step 6 command, with
-`--policy.path=outputs/train/rb_smolvla_v5/checkpoints/025000/pretrained_model`) and
-evaluate both with the step 7 protocol. Selecting only the corrective timesteps by
-`d_t > tau` is not implemented yet: filtering individual steps would break the
-temporal continuity action chunking needs, so it has to operate on contiguous
-segments, sized from the measured `d_t` distribution.
+`--action_prefix human` / `blend` label a step with `a_H` / `a_exec` when it is
+corrective (human intervening, direction disagreement >= `--angle_threshold`) and with
+the *policy's own action* otherwise — the same fallback in both, so the two datasets
+differ by exactly the label under test. Two details this protects against:
+
+- Taking `base_action` wholesale would train on "hold this pose" for the ~80% of steps
+  the human never touched the SpaceMouse — i.e. teach the policy to stop moving.
+- Taking `exec_action` wholesale would leave D_blend differing from D_human on
+  interventions the threshold excluded, confounding the comparison at any `tau > 0`.
+
+Then finetune two copies from the *same* checkpoint with identical settings — same
+`--seed`, a reduced `--policy.optimizer_lr` (2.5e-5; full rate overwrites a competent
+policy on a 4k-frame set) — and evaluate both plus the untouched base with the step 7
+protocol.
+
+Measured on the first 50-episode session: 4,144 steps, 721 corrective (17%),
+correction bursts of median 3 steps clustered in the approach phase, direction
+disagreement median 69 deg. `tau` = 0 / 45 / 90 deg selects 721 / 498 / 218 steps.
 
 > Not yet exercised against Isaac hardware-in-the-loop. The blend math and the
 > two-dataset conversion are unit-tested; the env/SpaceMouse path is not. Do one
