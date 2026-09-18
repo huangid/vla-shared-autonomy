@@ -816,14 +816,60 @@ differ by exactly the label under test. Two details this protects against:
 - Taking `exec_action` wholesale would leave D_blend differing from D_human on
   interventions the threshold excluded, confounding the comparison at any `tau > 0`.
 
-Then finetune two copies from the *same* checkpoint with identical settings — same
-`--seed`, a reduced `--policy.optimizer_lr` (2.5e-5; full rate overwrites a competent
-policy on a 4k-frame set) — and evaluate both plus the untouched base with the step 7
-protocol.
-
 Measured on the first 50-episode session: 4,144 steps, 721 corrective (17%),
 correction bursts of median 3 steps clustered in the approach phase, direction
 disagreement median 69 deg. `tau` = 0 / 45 / 90 deg selects 721 / 498 / 218 steps.
+
+**10. Finetune both and compare.** Two runs from the *same* base checkpoint, identical
+in every argument except the dataset and the output dir:
+
+```bash
+for M in human blend; do
+  lerobot-train \
+    --policy.path=outputs/train/rb_smolvla_v5/checkpoints/025000/pretrained_model \
+    --policy.push_to_hub=false \
+    --dataset.repo_id=local/corrections_$M \
+    --dataset.root=logs/lerobot/corrections_$M \
+    --dataset.video_backend=pyav \
+    --rename_map='{"observation.images.front": "observation.images.camera1"}' \
+    --batch_size=64 --steps=3000 --save_freq=1000 --num_workers=12 --seed=1000 \
+    --policy.optimizer_lr=2.5e-5 \
+    --output_dir=outputs/train/ft_$M --job_name=ft_$M \
+    --policy.device=cuda 2>&1 | tee /tmp/train_ft_$M.log
+done
+```
+
+- **`--seed=1000` on both** fixes initialization and data order, so the only difference
+  between the runs is the 711 labels. Without it, part of any gap would be run-to-run
+  noise.
+- **`--policy.optimizer_lr=2.5e-5`** (vs 1e-4 for base training): this finetunes an
+  already-competent policy on ~4k frames.
+- **Corrections only, no base demos mixed in.** Mixing would guard against forgetting,
+  but it dilutes the differing labels to ~2% of the data and any effect disappears.
+  The base policy is evaluated alongside, so degradation is visible if it happens.
+- Run them sequentially — two at once contend for the GPU. ~30-40 min each.
+
+Then evaluate both plus the untouched base on the **same** episodes:
+
+```bash
+for ck in rb_smolvla_v5/025000 ft_human/003000 ft_blend/003000; do
+  run=${ck%%/*}; step=${ck##*/}
+  python scripts/eval_smolvla.py \
+    --checkpoint outputs/train/$run/checkpoints/$step/pretrained_model \
+    --num_episodes 50 --seed 123 --debug_grounding --max_steps 150 --n_action_steps 5 \
+    --headless 2>&1 | tee /tmp/eval_${run}_${step}.log
+done
+```
+
+The policy drives alone here — no SpaceMouse, no blending. Use **50 episodes**: at 20
+the standard error is ~11%, enough to hide any moderate effect; 50 brings it to ~7%.
+Compare both finetunes at the *same* step rather than each one's best checkpoint,
+which would bias the comparison toward whichever got luckier.
+
+Outcomes: `ft_human` > `ft_blend` supports the study's hypothesis that raw human
+corrections are the stronger signal; the reverse favours the executed blend; both above
+base but tied means corrections help and the label choice does not; both at base means
+721 corrective samples was too few to move a 450M policy.
 
 > Not yet exercised against Isaac hardware-in-the-loop. The blend math and the
 > two-dataset conversion are unit-tested; the env/SpaceMouse path is not. Do one
