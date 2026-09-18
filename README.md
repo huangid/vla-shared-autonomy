@@ -295,6 +295,10 @@ python scripts/play.py \
 
 ## RandomBlock: Randomized Block/Bin Task
 
+> Measured results for every training round — dataset sizes, configs, success rates,
+> failure modes and what they imply — are kept in **[docs/RESULTS.md](docs/RESULTS.md)**.
+> This section is the how-to; that file is the record.
+
 `RandomBlock` is the base task for the VLA shared-autonomy study. It reuses the
 `ThreeBlocks` scene but changes two things:
 
@@ -681,20 +685,13 @@ for ck in v3/010000 v4/015000 v4/020000 v4/025000 v4/030000; do
 done
 ```
 
-Results so far (20 episodes, `--seed 123`, `--n_action_steps 5`):
-
-| Model | Demos | Success | Within 1.5 cm | First-chunk grounding | Median closest approach |
-|---|---|---|---|---|---|
-| v3 @ 10k | 100 | 0/20 | 3/20 | 60% | 3.5 cm |
-| v4 @ 15k | 250 | 6/20 | 10/20 | 75% | 1.6 cm |
-| v4 @ 20k | 250 | 7/20 | 10/20 | 70% | 1.5 cm |
-| **v4 @ 25k** | 250 | **11/20** | 9/20 | **90%** | 1.6 cm |
-| v4 @ 30k | 250 | 9/20 | 11/20 | 90% | 1.4 cm |
-
-v4 @ 25k is the current base policy; 25k and 30k are within noise of each other.
-Block choice is essentially solved (90% grounding, no distractor ever binned); every
-v4 failure is "never lifted the target", i.e. grasp precision — which is the partial
-competence the shared-autonomy correction study builds on.
+Measured results for every round — success rates, per-colour splits, failure modes,
+grounding and what they imply — live in **[docs/RESULTS.md](docs/RESULTS.md)**, so
+they stay in one place as rounds accumulate. In short: 100 demos scored 0/20, 250
+scored 11/20, and 400 scored 10–11/20 (no further gain). Block choice is solved
+(90–95% grounding, no distractor ever binned); every remaining failure is "never
+lifted the target", i.e. the grasp — which is the partial competence the
+shared-autonomy correction study builds on.
 
 > The "closest approach" figures are slightly unreliable for *successful* episodes:
 > the env auto-resets inside the step that ends an episode, so that final reading
