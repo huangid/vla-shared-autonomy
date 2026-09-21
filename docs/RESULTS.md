@@ -212,10 +212,72 @@ controlled; copy anything you need to keep).
 
 ---
 
-## 9. Next
+## 9. Shared autonomy: D_human vs D_blend (round 1)
 
-Step 3 of the plan: shared autonomy with logging. Run the SmolVLA policy and the
-SpaceMouse pilot simultaneously, execute `a_exec = α·a_R + (1−α)·a_H`, and log
-`(o_t, a_H, a_R, a_exec)` per step. Then select corrective samples by disagreement
-`d_t = ‖a_H − a_R‖ > τ`, build `D_blend` and `D_human`, and fine-tune from
-`rb_smolvla_v5/checkpoints/025000` for the comparison. Not yet implemented.
+The study's main comparison. `scripts/shared_autonomy.py` runs SmolVLA and the human
+SpaceMouse on the same observation each step, executes `a_exec = α·a_R + (1−α)·a_H`
+(α = 0.5, blending gated on human input), and logs `(o_t, a_H, a_R, a_exec)`.
+
+**Correction sessions** — base policy `rb_smolvla_v5/025000`, 5 sessions of 10:
+
+| | |
+|---|---|
+| Episodes | 50, **50/50 successful** (the policy alone scores ~48%) |
+| Steps | 4,144, of which **721 corrective** (17%) |
+| Correction bursts | 179, median 3 steps, clustered in the approach phase |
+| Direction disagreement | median 69°, p25 45°, p90 122° |
+| Selection at τ = 0 / 45 / 90° | 721 / 498 / 218 steps |
+
+**Datasets.** `D_human` and `D_blend` share every observation and differ on exactly
+the 711 selected corrective labels (median gap 4.3 cm, p90 8.1 cm): `a_H` vs `a_exec`,
+with the policy's own action on every non-corrective step in both. See
+`convert_demos.py --action_prefix human|blend`.
+
+**Finetuning.** Both from `rb_smolvla_v5/025000`, identical settings — 3,000 steps
+(~47 epochs over 4,094 frames), batch 64, lr 2.5e-5, `--seed 1000`, corrections only.
+Final loss: human 0.043, blend 0.036. (Blend's lower loss is expected and means
+nothing: `a_exec` is half the policy's own output, so it is an easier target.)
+
+**Results** — 50 episodes, `--seed 123`, identical episode sequence in all three runs,
+so the comparison is *paired* (McNemar exact test on discordant pairs):
+
+| Model | Success | Within 1.5 cm | Grounding | Median closest |
+|---|---|---|---|---|
+| base v5 @ 25k | **24/50 = 48%** | 27/50 | 70% | 1.4 cm |
+| `ft_human` @ 3k | 22/50 = 44% | 30/50 | 78% | 1.2 cm |
+| `ft_blend` @ 3k | 18/50 = 36% | 21/50 | 86% | 1.7 cm |
+
+| Pair | Discordant | p (exact) |
+|---|---|---|
+| human vs blend | 15 / 11 | 0.56 |
+| base vs human | 12 / 10 | 0.83 |
+| base vs blend | 17 / 11 | 0.35 |
+
+**Nothing here is statistically distinguishable.** Neither finetune beat the base
+policy, and the human-vs-blend gap (44% vs 36%) is well inside noise. The direction
+is consistent with the study hypothesis — human > blend, and `ft_human` alone improved
+the approach (30/50 within grasping range vs 27) — but at n = 50 this is not evidence.
+
+Two observations worth following up:
+
+- **Grounding rose monotonically** (70% → 78% → 86%) while success did not. Finetuning
+  on corrections made block *selection* more reliable; the grasp did not improve.
+- **`ft_blend` regressed on approach precision** (21/50 within 1.5 cm vs the base's 27)
+  and binned a distractor twice. Training toward the blended action — which is half the
+  policy's own, already-imprecise output — plausibly reinforces the existing error.
+
+**Caveats.** 47 epochs over 4k frames with no base demos mixed in risks both
+overfitting and forgetting; the 1k and 2k checkpoints were not evaluated. 721
+corrective samples may simply be too few to move a 450M-parameter policy. To resolve
+44% vs 36% at p < 0.05 with paired episodes would need roughly 200 eval episodes.
+
+## 10. Next
+
+1. **Evaluate `ft_human`/`ft_blend` at 1k and 2k steps** (~70 min). Both finetunes
+   landing at or below base is the signature of over-training / forgetting, and these
+   checkpoints are already on disk. Cheapest way to tell whether the signal exists.
+2. **If earlier checkpoints beat base**, rerun the comparison there and, if the gap
+   persists, raise eval to ~200 episodes for significance.
+3. **Otherwise collect more corrections** (100+ episodes, ~1,500 corrective samples),
+   and consider mixing a slice of the 400 base demos into both datasets to suppress
+   forgetting — applied identically to each, so the comparison stays clean.
