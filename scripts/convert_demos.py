@@ -125,9 +125,27 @@ _P = {"human": "base_action", "blend": "exec_action"}.get(args.action_prefix,
 ACT_SRC_KEYS = [f"{_P}.fingertip_pos", f"{_P}.fingertip_quat", f"{_P}.gripper"]
 _POLICY_KEYS = ["policy_action.fingertip_pos", "policy_action.fingertip_quat",
                 "policy_action.gripper"]
+
+# D_human takes its GRIPPER from the executed action, never from base_action.
+#
+# The SpaceMouse reports a latched open/closed state, not an intent: a driver who
+# steers position and leaves grasping to the policy emits `gripper = 0.0` (open) on
+# every step. Measured on the first 50-episode session that was literally all 4,144
+# steps, so taking base_action.gripper labelled 154 corrective steps (21% of them)
+# "hold the gripper OPEN" at the moments the policy was closing — i.e. D_human taught
+# the model not to grasp. The executed gripper is the right label in both cases: it is
+# the policy's when the human left grasping alone (as here), and the human's during the
+# --grip_hold_steps window after they do press a button.
+_HUMAN_ACT_SRC = [ACT_SRC_KEYS[0], ACT_SRC_KEYS[1], "exec_action.gripper"] \
+    if args.action_prefix == "human" else ACT_SRC_KEYS
 # Target keys the kNN format expects
 ACT_DST_KEYS = ["action.fingertip_pos", "action.fingertip_quat", "action.gripper"]
+# Keys we accumulate per timestep (ACT_SRC_KEYS names the action slots; in selection
+# mode their VALUES may come from a different stream per step).
 ALL_SRC_KEYS = OBS_KEYS + ACT_SRC_KEYS + (_POLICY_KEYS if _HUMAN_MODE else [])
+# Keys a timestep must contain to be usable — a superset, since D_human reads
+# exec_action.gripper without buffering it under its own name.
+REQUIRED_KEYS = ALL_SRC_KEYS + (["exec_action.gripper"] if args.action_prefix == "human" else [])
 if args.action_prefix != "base_action":
     print(f"[INFO] BC target stream: {args.action_prefix}"
           + (f" (human command where intervening and angle >= {args.angle_threshold:.0f} deg, "
@@ -166,7 +184,7 @@ for ep_dir in ep_dirs:
     n_human_labelled = 0
     for t, sf in enumerate(step_files):
         entry = json.loads(sf.read_text())
-        if not all(k in entry for k in ALL_SRC_KEYS):
+        if not all(k in entry for k in REQUIRED_KEYS):
             continue  # skip incomplete timesteps (e.g. terminal step)
         if _HUMAN_MODE:
             # angle < 0 means "undefined" (no commanded motion to compare), not
@@ -175,7 +193,7 @@ for ep_dir in ep_dirs:
             corrective = bool(entry.get("intervening", False)) and (
                 _ang >= args.angle_threshold if _ang >= 0.0 else args.angle_threshold <= 0.0)
             n_human_labelled += int(corrective)
-            src = ACT_SRC_KEYS if corrective else _POLICY_KEYS
+            src = _HUMAN_ACT_SRC if corrective else _POLICY_KEYS
             for k_dst, k_src in zip(ACT_SRC_KEYS, src):
                 buffers[k_dst].append(entry[k_src])
             for k in OBS_KEYS + _POLICY_KEYS:
