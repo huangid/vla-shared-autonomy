@@ -1,5 +1,11 @@
 # Efficient and Reliable Teleoperation through Real2Sim2Real Shared Autonomy
 
+> **VLA shared-autonomy thesis work** lives in this repo alongside the original
+> residual-copilot code. Start with **[docs/OVERVIEW.md](docs/OVERVIEW.md)** — the
+> research question, pipeline and current state — then
+> [docs/RESULTS.md](docs/RESULTS.md) for measurements and the
+> [RandomBlock section](#randomblock-randomized-blockbin-task) below for commands.
+
 ## Links
 
 - **Code:** https://github.com/shuosha/Residual_Copilot
