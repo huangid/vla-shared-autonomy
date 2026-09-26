@@ -5,6 +5,8 @@
 > research question, pipeline and current state — then
 > [docs/RESULTS.md](docs/RESULTS.md) for measurements and the
 > [RandomBlock section](#randomblock-randomized-blockbin-task) below for commands.
+> For the original residual-copilot project this repo was built for, see
+> [docs/RESIDUAL_COPILOT.md](docs/RESIDUAL_COPILOT.md).
 
 ## Links
 
