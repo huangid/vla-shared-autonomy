@@ -215,69 +215,102 @@ controlled; copy anything you need to keep).
 ## 9. Shared autonomy: D_human vs D_blend (round 1)
 
 The study's main comparison. `scripts/shared_autonomy.py` runs SmolVLA and the human
-SpaceMouse on the same observation each step, executes `a_exec = α·a_R + (1−α)·a_H`
-(α = 0.5, blending gated on human input), and logs `(o_t, a_H, a_R, a_exec)`.
+SpaceMouse on the same observation each step, executes `a_exec = alpha*a_R +
+(1-alpha)*a_H` (alpha = 0.5, blending gated on human input), and logs
+`(o_t, a_H, a_R, a_exec)`.
 
 **Correction sessions** — base policy `rb_smolvla_v5/025000`, 5 sessions of 10:
 
 | | |
 |---|---|
-| Episodes | 50, **50/50 successful** (the policy alone scores ~48%) |
+| Episodes | 50, **50/50 successful** (the policy alone scores ~52%) |
 | Steps | 4,144, of which **721 corrective** (17%) |
 | Correction bursts | 179, median 3 steps, clustered in the approach phase |
-| Direction disagreement | median 69°, p25 45°, p90 122° |
-| Selection at τ = 0 / 45 / 90° | 721 / 498 / 218 steps |
+| Direction disagreement | median 69 deg, p25 45, p90 122 |
+| Selection at tau = 0 / 45 / 90 deg | 721 / 498 / 218 steps |
 
-**Datasets.** `D_human` and `D_blend` share every observation and differ on exactly
-the 711 selected corrective labels (median gap 4.3 cm, p90 8.1 cm): `a_H` vs `a_exec`,
-with the policy's own action on every non-corrective step in both. See
-`convert_demos.py --action_prefix human|blend`.
+**Datasets.** `D_human` and `D_blend` share every observation and the gripper channel,
+differing on exactly the 711 selected corrective steps in position/orientation only:
+`a_H` vs `a_exec` (median gap 4.3 cm, p90 8.1 cm). Non-corrective steps take the
+policy's own action in both.
 
 **Finetuning.** Both from `rb_smolvla_v5/025000`, identical settings — 3,000 steps
-(~47 epochs over 4,094 frames), batch 64, lr 2.5e-5, `--seed 1000`, corrections only.
-Final loss: human 0.043, blend 0.036. (Blend's lower loss is expected and means
-nothing: `a_exec` is half the policy's own output, so it is an easier target.)
+(~47 epochs over 4,094 frames), batch 64, lr 2.5e-5, `--seed 1000`, corrections only,
+no base demos mixed in. Final loss: human 0.040, blend 0.036.
 
-**Results** — 50 episodes, `--seed 123`, identical episode sequence in all three runs,
-so the comparison is *paired* (McNemar exact test on discordant pairs):
+### Result: both finetunes are significantly WORSE than the base policy
 
-| Model | Success | Within 1.5 cm | Grounding | Median closest |
-|---|---|---|---|---|
-| base v5 @ 25k | **24/50 = 48%** | 27/50 | 70% | 1.4 cm |
-| `ft_human` @ 3k | 22/50 = 44% | 30/50 | 78% | 1.2 cm |
-| `ft_blend` @ 3k | 18/50 = 36% | 21/50 | 86% | 1.7 cm |
+200 episodes, `--seed 123`, identical episode sequence across all three runs, so the
+comparison is paired (McNemar exact test on discordant pairs):
+
+| Model | Success | vs base | Within 1.5 cm | Grounding | Median closest |
+|---|---|---|---|---|---|
+| **base v5 @ 25k** | **104/200 = 52.0%** | — | 130/200 | 76% | 1.0 cm |
+| `ft_blend` @ 3k | 82/200 = 41.0% | **p = 0.032** | 115/200 | 78% | 1.2 cm |
+| `ft_human` @ 3k | 75/200 = 37.5% | **p = 0.0046** | 114/200 | 70% | 1.3 cm |
 
 | Pair | Discordant | p (exact) |
 |---|---|---|
-| human vs blend | 15 / 11 | 0.56 |
-| base vs human | 12 / 10 | 0.83 |
-| base vs blend | 17 / 11 | 0.35 |
+| base vs human | 64 / 35 | **0.0046** |
+| base vs blend | 59 / 37 | **0.032** |
+| human vs blend | 42 / 49 | 0.53 |
 
-**Nothing here is statistically distinguishable.** Neither finetune beat the base
-policy, and the human-vs-blend gap (44% vs 36%) is well inside noise. The direction
-is consistent with the study hypothesis — human > blend, and `ft_human` alone improved
-the approach (30/50 within grasping range vs 27) — but at n = 50 this is not evidence.
+Two conclusions, both solid at this sample size:
 
-Two observations worth following up:
+1. **Finetuning on corrections alone degrades the policy** — by 11-15 points, in both
+   arms. The damage shows up in the approach: within-grasping-range episodes fall from
+   130/200 to ~115/200, and mean closest approach worsens by ~0.25 cm.
+2. **The label choice makes no measurable difference** (37.5% vs 41.0%, p = 0.53). The
+   study's central question is *not answered* by this round: with both arms degraded by
+   a shared cause, there is nothing to compare.
 
-- **Grounding rose monotonically** (70% → 78% → 86%) while success did not. Finetuning
-  on corrections made block *selection* more reliable; the grasp did not improve.
-- **`ft_blend` regressed on approach precision** (21/50 within 1.5 cm vs the base's 27)
-  and binned a distractor twice. Training toward the blended action — which is half the
-  policy's own, already-imprecise output — plausibly reinforces the existing error.
+The most likely mechanism is catastrophic forgetting: 47 epochs over 4,094 frames of
+corrections-only data, against a policy trained on 37,370 frames. Earlier checkpoints
+do not rescue it — at 1k steps (50 episodes) human scored 17/50 and blend 21/50, no
+better than at 3k, so this is not simple over-training.
 
-**Caveats.** 47 epochs over 4k frames with no base demos mixed in risks both
-overfitting and forgetting; the 1k and 2k checkpoints were not evaluated. 721
-corrective samples may simply be too few to move a 450M-parameter policy. To resolve
-44% vs 36% at p < 0.05 with paired episodes would need roughly 200 eval episodes.
+### Bug found and fixed mid-round: the human gripper channel
+
+The first `D_human` build took `base_action.gripper` literally. The SpaceMouse reports
+a *latched* open/closed state, not an intent, and a driver who steers position while
+leaving grasping to the policy emits `gripper = 0.0` (open) on every step — measured,
+that was all 4,144 steps. So `D_human` labelled 154 corrective steps (21% of them)
+"hold the gripper OPEN" at the moments the policy was closing: it was training the
+model not to grasp.
+
+The symptom was diagnostic: that build reached grasping range more often than any
+other model (34/50) while converting worst (17/50). `D_human` now takes the gripper
+from the *executed* action — the policy's when the human leaves grasping alone, the
+human's during the grip-hold window after a button press. The numbers above are from
+the corrected rebuild.
+
+### Label scale, checked and cleared
+
+Suspecting the human's teleop targets were on a smaller scale than the policy's own
+action distribution, measured distance-from-fingertip per label:
+
+| Source | Median |
+|---|---|
+| Base demos (what v5 learned from) | 8.7 cm |
+| Policy's own actions (non-corrective steps) | 13.2 cm |
+| Human corrections (`D_human`) | 7.6 cm |
+| Blended actions (`D_blend`) | 4.9 cm |
+
+The human's corrections sit closer to the original demo distribution than the policy's
+own outputs do, so scale mismatch does not explain the degradation. `D_blend` is the
+outlier at 4.9 cm — averaging two directions ~69 deg apart shortens the vector — which
+is a reason to expect the blend to be the weaker target, though the eval does not
+separate them.
 
 ## 10. Next
 
-1. **Evaluate `ft_human`/`ft_blend` at 1k and 2k steps** (~70 min). Both finetunes
-   landing at or below base is the signature of over-training / forgetting, and these
-   checkpoints are already on disk. Cheapest way to tell whether the signal exists.
-2. **If earlier checkpoints beat base**, rerun the comparison there and, if the gap
-   persists, raise eval to ~200 episodes for significance.
-3. **Otherwise collect more corrections** (100+ episodes, ~1,500 corrective samples),
-   and consider mixing a slice of the 400 base demos into both datasets to suppress
-   forgetting — applied identically to each, so the comparison stays clean.
+1. **Mix base demos into both datasets** and repeat. This is now well motivated rather
+   than precautionary: corrections-only demonstrably degrades the policy. Applied
+   identically to both arms, it keeps the comparison clean. A slice (~50-100 base
+   demos) keeps the differing labels at 5-8% of the data; all 400 dilutes them to 1.7%.
+2. **Consider a lower learning rate / fewer steps** alongside the mix.
+3. **Only then** is the a_H vs a_exec question answerable: both arms must be at least
+   non-degraded before the label choice can be compared meaningfully.
+4. A second correction round should be collected against the *current best* policy —
+   corrections recorded against v5 @ 25k describe that policy's mistakes, and go stale
+   as soon as the policy changes (the DAgger argument).
