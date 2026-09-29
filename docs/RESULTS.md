@@ -302,15 +302,70 @@ outlier at 4.9 cm — averaging two directions ~69 deg apart shortens the vector
 is a reason to expect the blend to be the weaker target, though the eval does not
 separate them.
 
-## 10. Next
+## 10. Correction round 2: with base-demo ballast
 
-1. **Mix base demos into both datasets** and repeat. This is now well motivated rather
-   than precautionary: corrections-only demonstrably degrades the policy. Applied
-   identically to both arms, it keeps the comparison clean. A slice (~50-100 base
-   demos) keeps the differing labels at 5-8% of the data; all 400 dilutes them to 1.7%.
-2. **Consider a lower learning rate / fewer steps** alongside the mix.
-3. **Only then** is the a_H vs a_exec question answerable: both arms must be at least
-   non-degraded before the label choice can be compared meaningfully.
-4. A second correction round should be collected against the *current best* policy —
-   corrections recorded against v5 @ 25k describe that policy's mistakes, and go stale
-   as soon as the policy changes (the DAgger argument).
+Round 1 showed corrections-only finetuning degrades the policy, so both arms were
+rebuilt as **corrections + 100 base demos** (`merge_npy_datasets.py`, seeded so the
+same 100 episodes land in both): 150 episodes, 13,273 frames, differing labels 711 =
+**5.4%** of the data (was 17%). 5,000 steps (~24 epochs), otherwise identical settings.
+
+### All five models, 200 identical episodes, paired
+
+| Model | Training data | Success | vs base |
+|---|---|---|---|
+| **base v5 @ 25k** | 400 demos | **104/200 = 52.0%** | — |
+| `mix_human` @ 5k | corrections + 100 demos | 98/200 = 49.0% | p = 0.60 |
+| `mix_blend` @ 5k | corrections + 100 demos | 89/200 = 44.5% | p = 0.15 |
+| `ft_blend` @ 3k | corrections only | 82/200 = 41.0% | p = 0.032 |
+| `ft_human` @ 3k | corrections only | 75/200 = 37.5% | p = 0.0046 |
+
+| Pair | p (McNemar exact) |
+|---|---|
+| `ft_human` -> `mix_human` | **0.027** — ballast significantly repaired the damage |
+| `ft_blend` -> `mix_blend` | 0.53 |
+| base vs `mix_human` | 0.60 |
+| base vs `mix_blend` | 0.15 |
+| **`mix_human` vs `mix_blend`** | **0.41** |
+
+### What this establishes
+
+1. **Base-demo ballast fixes the degradation.** `mix_human` is significantly better
+   than `ft_human` (p = 0.027) and statistically indistinguishable from the base. The
+   round-1 damage was catastrophic forgetting, as suspected.
+2. **Corrections do not improve the policy either.** Neither mixed model beats base;
+   the best (`mix_human`, 49.0%) is nominally *below* it. 721 corrective samples at
+   5.4% of the training mix move nothing.
+3. **The study's question remains unanswered** (p = 0.41), and the direction is *not*
+   consistent across rounds: round 1 had blend ahead (41.0% vs 37.5%), round 2 has
+   human ahead (49.0% vs 44.5%). Two rounds pointing opposite ways is the signature of
+   noise, not a small real effect.
+
+Grounding is unchanged by any of this (base 76%, both mixed arms 74%), as is the
+failure profile: "never lifted the target" dominates throughout.
+
+### Why more evaluation will not settle it
+
+At the observed effect (discordant split 52/43), reaching 80% power needs ~874
+discordant pairs, i.e. **~1,840 episodes per model — about 20 h of evaluation each**.
+The answer is not more eval episodes; it is a larger effect or none at all.
+
+Levers that would increase the effect size, rather than the sample size:
+
+- **Raise alpha.** At alpha = 0.5 the blend sits midway, so `a_exec` and `a_H` differ
+  by half the disagreement (median 4.3 cm). At alpha = 0.8 that gap is 1.6x larger,
+  making the two labels genuinely different targets rather than near-neighbours.
+- **More corrective share.** More correction episodes raises the 5.4% contrast without
+  removing the ballast that prevents forgetting.
+- **Corrections against the current policy.** These describe v5 @ 25k's mistakes; any
+  finetuned policy errs differently (the DAgger argument).
+
+## 11. Next
+
+1. Round 3 with a higher alpha (0.7-0.8) and corrections collected against the current
+   best policy — the two changes that enlarge the label contrast rather than chasing
+   statistical power.
+2. If that also comes back null, the defensible thesis claim is the characterised
+   negative: *at this scale, on this task, the choice between blended and raw human
+   labels does not measurably affect a finetuned VLA, while the training recipe
+   (corrections-only vs ballasted) does — by 11-15 points.* That is a real finding
+   about where the leverage actually sits.
