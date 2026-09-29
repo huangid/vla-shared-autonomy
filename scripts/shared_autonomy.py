@@ -58,8 +58,12 @@ parser.add_argument("--alpha", type=float, default=0.5,
 parser.add_argument("--blend_always", action="store_true", default=False,
                     help="Blend on every step, including while the SpaceMouse is untouched. "
                          "Off by default — see the idle-gating note in the module docstring.")
-parser.add_argument("--grip_hold_steps", type=int, default=30,
-                    help="Steps (15 Hz) the human keeps gripper control after pressing a button.")
+parser.add_argument("--grip_hold_steps", type=int, default=0,
+                    help="Steps (15 Hz) the human keeps gripper control after pressing a button. "
+                         "0 (default) = keep it for the rest of the episode. The SpaceMouse "
+                         "reports a LATCHED open/closed state rather than a momentary press, so a "
+                         "timed window silently handed the gripper back to the policy while the "
+                         "operator still believed they held it.")
 parser.add_argument("--max_steps", type=int, default=300,
                     help="Safety cap per episode (~20 s at 15 Hz); the env also times out at 60 s.")
 parser.add_argument("--n_action_steps", type=int, default=5,
@@ -329,8 +333,12 @@ def run(env_cfg, agent_cfg):
             # SpaceMouse reports gripper as -1/+1; the env's action space is [0, 1].
             a_h = a_h.clone()
             a_h[7] = 1.0 if float(a_h[7]) > 0 else 0.0
+            # First button press hands the gripper to the human. With
+            # --grip_hold_steps 0 (default) they keep it for the rest of the episode;
+            # a positive value returns it to the policy after that many steps.
             if prev_grip_cmd is not None and float(a_h[7]) != prev_grip_cmd:
-                grip_owner_until = steps + args_cli.grip_hold_steps
+                grip_owner_until = (10 ** 9 if args_cli.grip_hold_steps <= 0
+                                    else steps + args_cli.grip_hold_steps)
             prev_grip_cmd = float(a_h[7])
 
             # Steering and grasping are separate authorities. `intervening` means the
