@@ -232,7 +232,7 @@ def disagreement(a_h, a_r, fingertip):
     return raw, float(np.degrees(np.arccos(cos))), mag_h, mag_r
 
 
-def timestep_record(obs, a_h, a_r, a_exec, qpos, d_t, intervening):
+def timestep_record(obs, a_h, a_r, a_exec, qpos, d_t, intervening, grip_override=False):
     """One logged timestep. obs.* / base_action.* / action.* match play.py's layout.
 
     base_action.* is the HUMAN command (so convert_demos' default builds D_human) and
@@ -265,7 +265,8 @@ def timestep_record(obs, a_h, a_r, a_exec, qpos, d_t, intervening):
         "disagreement_angle_deg":      float(d_t[1]),     # angle between intended displacements; -1 = undefined
         "human_travel":                float(d_t[2]),     # ||a_H - fingertip||, m
         "policy_travel":               float(d_t[3]),     # ||a_R - fingertip||, m
-        "intervening":                 bool(intervening),
+        "intervening":                 bool(intervening),      # human commanding motion
+        "grip_override":               bool(grip_override),    # human owns the gripper
     }
 
 
@@ -332,23 +333,33 @@ def run(env_cfg, agent_cfg):
                 grip_owner_until = steps + args_cli.grip_hold_steps
             prev_grip_cmd = float(a_h[7])
 
+            # Steering and grasping are separate authorities. `intervening` means the
+            # human is commanding MOTION — it gates position/orientation blending and
+            # marks the corrective steps whose labels the study compares. Gripper
+            # authority is independent: pressing a button while holding the mouse still
+            # must still open or close the hand, which it did not when the gripper
+            # override was folded into `intervening`.
             intervening = args_cli.blend_always or not bool(getattr(human, "is_idle", True))
+            grip_override = steps < grip_owner_until
             d_t = disagreement(a_h.cpu().numpy(), a_r.cpu().numpy(),
                                env_u.fingertip_midpoint_pos[0].cpu().numpy())
-            a_exec = blend(a_r, a_h, alpha, steps < grip_owner_until) if intervening else a_r.clone()
+            a_exec = blend(a_r, a_h, alpha, grip_override) if intervening else a_r.clone()
+            if grip_override:
+                a_exec[7] = a_h[7]          # applies whether or not the human is steering
 
             if rollout_path is not None:
+                # d_t = (raw, angle_deg, human_travel, policy_travel) from disagreement()
                 buffers.append(timestep_record(
                     obs_np, a_h.cpu().numpy(), a_r.cpu().numpy(), a_exec.cpu().numpy(),
-                    current_qpos(env_u), d_t, intervening))
-            # (d_t = (raw, angle_deg, human_travel, policy_travel) from disagreement())
+                    current_qpos(env_u), d_t, intervening, grip_override))
                 frames.append(rgb.cpu().numpy().astype(np.uint8))
 
             with torch.inference_mode():
                 obs_dict, _rew, terminated, truncated, _info = env.step(a_exec.view(1, -1))
             steps += 1
             print(f"\r[{ep_name}] step {steps:4d}  angle {d_t[1]:5.1f}deg  raw {d_t[0]*100:5.1f}cm  "
-                  f"{'HUMAN' if intervening else 'robot'}   ", end="", flush=True)
+                  f"{'HUMAN' if intervening else 'robot'}"
+                  f"{'  GRIP' if grip_override else '      '}  ", end="", flush=True)
 
             if bool((terminated | truncated)[0].item()):
                 success = bool(env_u.ep_succeeded[0].item())
