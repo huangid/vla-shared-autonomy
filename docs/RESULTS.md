@@ -359,6 +359,38 @@ Levers that would increase the effect size, rather than the sample size:
 - **Corrections against the current policy.** These describe v5 @ 25k's mistakes; any
   finetuned policy errs differently (the DAgger argument).
 
+## 11. Round 3 — analysis plan (written BEFORE collection)
+
+Recorded in advance so the reported result cannot be chosen after seeing the numbers.
+Rounds 1 and 2 were both null on the label question with the direction flipping
+between them, so round 3 changes the two things that govern *effect size* rather than
+sample size, and fixes what will be reported.
+
+**Design.** 2 x 2: alpha in {0.5, 0.8} x label in {a_H, a_exec}. 100 correction
+episodes per alpha (the existing 50 at alpha = 0.5 plus 50 new; 100 new at alpha =
+0.8), each mixed with the same seeded 100 base demos. Training identical to round 2
+(5,000 steps, lr 2.5e-5, seed 1000). Evaluation: 200 episodes, `--seed 123`, paired
+McNemar exact test — the same protocol and the same episodes as every earlier model.
+
+**Primary comparison (declared in advance):** `mix08_human` vs `mix08_blend`, i.e. the
+label choice at alpha = 0.8. Significance at p < 0.05 on this one test.
+
+**Secondary (reported, not used to claim the hypothesis):**
+- label choice at alpha = 0.5 with 100 episodes
+- the effect of alpha itself
+- each arm against the base policy (104/200)
+
+**Rationale for the two changes.** At alpha = 0.5 the executed action is the midpoint,
+so `a_exec` and `a_H` differ by only half the disagreement (median 4.3 cm) — the two
+labels are near-neighbours. At alpha = 0.8 that gap is 1.6x larger. Doubling the
+correction episodes raises the share of training data whose labels differ from 5.4% to
+~8.3%. Together they give the largest honest contrast available without changing the
+task or the base policy.
+
+**Stopping rule.** Round 3 is the last round. Whatever it shows is what gets reported;
+no further rounds will be run in search of a favourable result. A null across three
+rounds — at 1.6x label separation and 1.5x corrective share — is the finding.
+
 ## 11. Next
 
 1. Round 3 with a higher alpha (0.7-0.8) and corrections collected against the current
