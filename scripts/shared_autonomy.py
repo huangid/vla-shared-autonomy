@@ -26,8 +26,10 @@ Two behaviours worth knowing before driving:
   it the robot runs on `a_R` alone; blending starts the moment you push. Pass
   `--blend_always` to blend every step regardless.
 * **Gripper.** Open/close is binary and does not average meaningfully, so it follows
-  whoever is in charge: the human for `--grip_hold_steps` after any button press,
-  the policy otherwise. Both raw values are logged either way.
+  whoever is in charge: the policy until the human presses a button, the human from
+  then on (for the rest of the episode by default; `--grip_hold_steps N` hands it back
+  after N steps). Gripper authority is independent of steering — pressing a button
+  while holding the mouse still works. Both raw values are logged either way.
 
 Usage:
     python scripts/shared_autonomy.py \\
@@ -313,7 +315,7 @@ def run(env_cfg, agent_cfg):
 
         buffers, frames = [], []
         grip_owner_until = -1
-        prev_grip_cmd = None
+        prev_grip_events = None
         steps = 0
         success = False
         ended = False           # env reported terminated/truncated (so it already auto-reset)
@@ -333,13 +335,16 @@ def run(env_cfg, agent_cfg):
             # SpaceMouse reports gripper as -1/+1; the env's action space is [0, 1].
             a_h = a_h.clone()
             a_h[7] = 1.0 if float(a_h[7]) > 0 else 0.0
-            # First button press hands the gripper to the human. With
-            # --grip_hold_steps 0 (default) they keep it for the rest of the episode;
-            # a positive value returns it to the policy after that many steps.
-            if prev_grip_cmd is not None and float(a_h[7]) != prev_grip_cmd:
+            # Any button PRESS hands the gripper to the human — not a change in the
+            # resulting open/closed state, which would miss "open" pressed while already
+            # open, i.e. the first thing an operator does after the robot closes on
+            # nothing. With --grip_hold_steps 0 (default) they keep it for the rest of
+            # the episode; a positive value returns it to the policy after that many steps.
+            events = int(getattr(human, "grip_events", 0))
+            if prev_grip_events is not None and events != prev_grip_events:
                 grip_owner_until = (10 ** 9 if args_cli.grip_hold_steps <= 0
                                     else steps + args_cli.grip_hold_steps)
-            prev_grip_cmd = float(a_h[7])
+            prev_grip_events = events
 
             # Steering and grasping are separate authorities. `intervening` means the
             # human is commanding MOTION — it gates position/orientation blending and

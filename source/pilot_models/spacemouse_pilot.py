@@ -31,6 +31,10 @@ class SpaceMousePilot:
         self._pos = np.zeros(3)
         self._rot = np.zeros(3)
         self._grip = -1.0
+        # Number of gripper button presses seen. Monotonic; read it to detect that the
+        # operator touched the gripper at all (see _reader).
+        self.grip_events = 0
+        self._prev_button_mask = 0
         self._lock = threading.Lock()
         self._dev = hid.device()
         self._dev.open(vendor, product)
@@ -59,11 +63,21 @@ class SpaceMousePilot:
                     with self._lock:
                         self._rot = np.array([rx, ry, rz])
                 elif rid == 3:
+                    mask = data[1]
                     with self._lock:
-                        if data[1] & 0x01:      # left button -> close (big grip closed on object)
+                        if mask & 0x01:         # left button -> close (big grip closed on object)
                             self._grip = 1.0
-                        elif data[1] & 0x02:    # right button -> open (release)
+                        elif mask & 0x02:       # right button -> open (release)
                             self._grip = -1.0
+                        # Count button EVENTS, not changes of the resulting state. A caller
+                        # that watches only `_grip` cannot see the operator press "open"
+                        # while the gripper is already open — which is exactly what a human
+                        # does first when the robot has closed on nothing. Shared autonomy
+                        # uses this counter to decide when the human has taken the gripper.
+                        if mask != self._prev_button_mask:
+                            if mask:
+                                self.grip_events += 1
+                            self._prev_button_mask = mask
             else:
                 time.sleep(0.002)
 
