@@ -913,6 +913,51 @@ base but tied means corrections help and the label choice does not; both at base
 > two-dataset conversion are unit-tested; the env/SpaceMouse path is not. Do one
 > `--num_episodes 1` run first and check that `d_t` moves when you push the mouse.
 
+**11. Round 3: vary alpha, and scale the corrective share.** Rounds 1-2 were null on
+the label question (see [docs/RESULTS.md](docs/RESULTS.md)), so round 3 changes what
+governs *effect size* rather than sample size: a higher alpha widens the gap between
+`a_H` and `a_exec`, and more correction episodes raise the fraction of training data
+whose labels differ.
+
+```bash
+# 1. collect per alpha, ten sessions of ten (sa08_s1..s10 at 0.8, sa05b_s1..s10 at 0.5)
+python scripts/shared_autonomy.py \
+  --checkpoint outputs/train/rb_smolvla_v5/checkpoints/025000/pretrained_model \
+  --num_episodes 10 --alpha 0.8 --rollout_dir logs/rollouts/sa08_s1
+
+# 2. per arm: convert every session, then add the SAME seeded base-demo slice
+for M in human blend; do
+  for i in $(seq 1 10); do
+    python scripts/convert_demos.py --rollout_dir logs/rollouts/sa08_s$i \
+      --output logs/data/corr08_$M.npy --append --action_prefix $M --angle_threshold 0
+  done
+  python scripts/merge_npy_datasets.py \
+    --inputs logs/data/corr08_$M.npy logs/data/randomblock_demos.npy \
+    --take all 100 --seed 0 --output logs/data/mix08_$M.npy
+  python scripts/npy_to_lerobot.py --input logs/data/mix08_$M.npy \
+    --repo_id local/mix08_$M --root logs/lerobot/mix08_$M --images --overwrite
+done
+
+# 3. train both arms (step 10 command, --steps 6500 for the larger set), then evaluate
+for M in mix08_human mix08_blend mix05b_human mix05b_blend; do
+  python scripts/eval_smolvla.py \
+    --checkpoint outputs/train/$M/checkpoints/006500/pretrained_model \
+    --num_episodes 200 --seed 123 --debug_grounding --max_steps 150 --n_action_steps 5 \
+    --headless 2>&1 | tee /tmp/eval200_${M}_006500.log
+done
+```
+
+- **`--take all 100 --seed 0`** must be identical for every arm, or the arms differ by
+  their base-demo slice as well as by the labels under test.
+- **Wait for `npy_to_lerobot` to finish before training.** It writes episodes
+  incrementally; starting early trains on a partial dataset with no error at all.
+  Check `meta/info.json` reports the expected `total_episodes`.
+- **`--steps`** scales with dataset size to hold epochs roughly constant (5,000 for
+  13k frames, 6,500 for 17.5k).
+- Measured contrast: alpha 0.8 gave 11.7% of training steps differing with a 10.9 cm
+  median label gap; alpha 0.5 gave 4.8% and 6.2 cm. Raising alpha is the lever that
+  makes the two labels genuinely different targets.
+
 ---
 
 *Not the VLA path:* `python scripts/train.py --task XArm-RandomBlock-Residual --pilot kNNPilot --num_envs 128 --headless`

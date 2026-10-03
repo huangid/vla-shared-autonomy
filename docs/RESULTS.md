@@ -391,7 +391,7 @@ task or the base policy.
 no further rounds will be run in search of a favourable result. A null across three
 rounds — at 1.6x label separation and 1.5x corrective share — is the finding.
 
-## 11. Next
+## 12. Next
 
 1. Round 3 with a higher alpha (0.7-0.8) and corrections collected against the current
    best policy — the two changes that enlarge the label contrast rather than chasing
