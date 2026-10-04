@@ -478,13 +478,35 @@ so it is self-consistent imitation data.
 - The base checkpoint was selected on an underpowered 20-episode evaluation; only
   `v5/025000` was ever characterised at n = 200.
 
-## 12. Next
+## 13. Control arm: ballast without corrections (pending)
 
-1. Round 3 with a higher alpha (0.7-0.8) and corrections collected against the current
-   best policy — the two changes that enlarge the label contrast rather than chasing
-   statistical power.
-2. If that also comes back null, the defensible thesis claim is the characterised
-   negative: *at this scale, on this task, the choice between blended and raw human
-   labels does not measurably affect a finetuned VLA, while the training recipe
-   (corrections-only vs ballasted) does — by 11-15 points.* That is a real finding
-   about where the leverage actually sits.
+Every finetuned arm trained on 100 correction episodes **plus 100 of the 400 base
+demos**, so comparisons against the base policy (`rb_smolvla_v5/025000`, trained on all
+400) confound two changes: adding corrections, and finetuning on a quarter of the
+original data. The primary test is unaffected — `mix08_human` and `mix08_blend` shared
+the identical 100-demo slice, so only the labels differ — but the secondary "does it
+beat base" claims are not clean.
+
+`ballast_only` removes the corrections and keeps everything else: the same seeded
+100-demo slice, the same base checkpoint, lr, and seed, at 3,400 steps so the base demos
+receive the same ~23.6 passes they got inside the mixed arms. See README step 12.
+
+Once evaluated on the same 200 episodes, the secondary claims become
+"X vs finetuning without corrections" rather than "X vs the 400-demo base policy".
+
+Status: dataset built (100 episodes, 9,179 frames, slice verified identical to the
+arms'); training and evaluation outstanding.
+
+## 14. Next
+
+1. **Run the control arm** (section 13) to make the "beats base?" claims clean.
+2. **Update [OVERVIEW.md](OVERVIEW.md)** if the control changes any wording.
+3. **Optional, for accuracy rather than the research question:** the 200
+   shared-autonomy episodes are 200/200 successful, so labelling every step
+   `exec_action` and pooling them with the 400 demos is standard DAgger aggregation
+   and the most promising route to raising success. Keep it separate from the
+   label-comparison experiments.
+4. Smaller, unresolved: sweep `--n_action_steps` (fixed at 5 from a 6-episode
+   comparison); fix the `closest approach` contamination on successful episodes; log
+   block positions in `eval_smolvla.py` to test whether failures cluster by table
+   position.

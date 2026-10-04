@@ -113,30 +113,42 @@ the policy's first plan aim at the *named* block (chance 33%).
 - Nearly every failure is "never lifted the target" — the grasp, not the choice. This
   is the partial competence the study needs.
 
-### Correction round 1: both finetunes made it worse
+### Correction rounds: the hypothesis is refuted
 
-50 shared-autonomy episodes (50/50 successful with human help), 4,144 steps, 721
-corrective (17%), corrections clustered in the approach phase.
+Three rounds, all finetuned from `v5/025000`, all evaluated on the same 200 episodes
+(paired McNemar). Full numbers in [RESULTS.md](RESULTS.md) sections 9-13.
 
-| Model | Success (200 paired episodes) | vs base |
-|---|---|---|
-| base v5 @ 25k | 104/200 = 52.0% | — |
-| `ft_blend` | 82/200 = 41.0% | p = 0.032 |
-| `ft_human` | 75/200 = 37.5% | p = 0.0046 |
+| Round | alpha | Corrections | D_human | D_blend | Label gap |
+|---|---|---|---|---|---|
+| 1 (corrections only) | 0.5 | 50 eps | 37.5% | 41.0% | 4.3 cm |
+| 2 (+ 100 base demos) | 0.5 | 50 eps | 49.0% | 44.5% | 4.3 cm |
+| 3 (+ 100 base demos) | 0.5 | 100 eps | 47.5% | 49.0% | 6.2 cm |
+| **3 (+ 100 base demos)** | **0.8** | **100 eps** | **34.0%** | **53.0%** | **10.9 cm** |
 
-Two conclusions: **finetuning on corrections alone significantly degrades the
-policy**, and **the label choice makes no measurable difference** (p = 0.53). The
-research question is therefore *not yet answered* — both arms were damaged by a shared
-cause, so there is nothing to compare. Most likely catastrophic forgetting: 47 epochs
-over 4k correction frames against a policy built from 37k.
+Base policy: 52.0%.
 
-### Round 2: in progress
+**The answer is `a_exec`, not `a_H`** — the opposite of the hypothesis, at p = 0.00018
+on a pre-registered primary test (section 11 was committed before the data existed).
+Training on the raw human action is also significantly *worse than leaving the policy
+alone* (p = 0.0011), while the blend matches it (p = 0.93).
 
-Both arms rebuilt as corrections + 100 base demos (13,273 frames; differing labels
-5.4% instead of 17%), identical base slice in both, 5,000 steps. The open risk is the
-reverse of round 1: dilute the contrast too far and both models simply match the base.
+Three further findings:
 
----
+1. **Dose-response.** The effect is absent at alpha = 0.5 (p = 0.83, labels 6.2 cm
+   apart) and large at alpha = 0.8 (labels 10.9 cm apart). That is why rounds 1 and 2
+   found nothing: both ran at alpha = 0.5.
+2. **The mechanism is off-policy mismatch.** On disagreeing steps, `D_human` asks the
+   arm to travel 14.1 cm against `D_blend`'s 3.7 cm and the base demos' 8.7 cm. With
+   only 20% authority the operator pushes hard, so `a_H` becomes an out-of-distribution
+   target that never produced the observations it is paired with. `a_exec` is
+   self-consistent by construction.
+3. **`a_H` is not "pure human intent" in an absolute-target action space.** Its
+   magnitude is an artefact of alpha. Future work using raw human actions should
+   rescale to the policy's action distribution, or use a relative/velocity action space.
+
+Separately, round 1 established that **training recipe matters more than label
+choice**: corrections-only finetuning cost 11-15 points, and adding base-demo ballast
+repaired it (p = 0.027). No arm in any round improved on the base policy.
 
 ## 5. Things that were wrong, and how they were caught
 
@@ -170,18 +182,20 @@ training loss.
 
 ## 6. Open questions
 
-1. **Does base-demo ballast fix the degradation?** Round 2 answers this.
-2. **Is `a_H` better than `a_exec`?** The original question, still unanswered.
-3. **How much correction data is needed?** 721 corrective samples may be too few to
-   move a 450M-parameter policy regardless of labelling.
-4. **Stale corrections.** Corrections were recorded against v5 @ 25k and describe
-   *that* policy's mistakes. Once a finetune changes the policy, they go stale — the
-   DAgger argument for iterating collection against the current best model.
-5. **Do failures cluster by table position?** `eval_smolvla.py` does not log block
-   positions, so this is untested; it would say whether the spawn range is too wide
-   for the data budget.
-
----
+1. **Answered:** `a_exec` beats `a_H`, and only when authority is skewed enough for the
+   two to diverge. See section 4.
+2. **Why does neither label improve on the base?** Non-corrective steps are labelled
+   with the policy's own action, so most of the finetuning is self-distillation. Only
+   the 5-12% corrective steps carry new information.
+3. **Would aggregating the successful shared-autonomy trajectories help?** The 200
+   episodes succeeded 200/200; labelling every step `exec_action` and pooling with the
+   400 demos is the untested, most promising route to higher success.
+4. **Stale corrections.** All corrections were recorded against `v5/025000`; a
+   finetuned policy errs differently (the DAgger argument for iterating collection).
+5. **Does grasp failure cluster by table position?** `eval_smolvla.py` does not log
+   block positions, so this remains untested. Correction directions were roughly
+   isotropic (34% along the camera ray, 29% lateral, 38% vertical), which argues
+   against monocular depth error and toward descent height / gripper timing.
 
 ## 7. Environment
 

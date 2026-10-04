@@ -958,6 +958,43 @@ done
   median label gap; alpha 0.5 gave 4.8% and 6.2 cm. Raising alpha is the lever that
   makes the two labels genuinely different targets.
 
+**12. Control arm: ballast without corrections.** Every finetuned arm trains on 100
+correction episodes *plus* 100 of the 400 base demos, so "arm vs base policy" confounds
+two changes: the corrections, and finetuning on a quarter of the original data. This
+control removes the corrections and keeps everything else, making the comparison clean.
+
+```bash
+# the SAME seeded 100-demo slice the arms used, with no corrections
+python scripts/merge_npy_datasets.py --inputs logs/data/randomblock_demos.npy \
+  --take 100 --seed 0 --output logs/data/ballast_only.npy
+python scripts/npy_to_lerobot.py --input logs/data/ballast_only.npy \
+  --repo_id local/ballast_only --root logs/lerobot/ballast_only --images --overwrite
+
+lerobot-train \
+  --policy.path=outputs/train/rb_smolvla_v5/checkpoints/025000/pretrained_model \
+  --policy.push_to_hub=false \
+  --dataset.repo_id=local/ballast_only --dataset.root=logs/lerobot/ballast_only \
+  --dataset.video_backend=pyav \
+  --rename_map='{"observation.images.front": "observation.images.camera1"}' \
+  --batch_size=64 --steps=3400 --save_freq=1700 --num_workers=12 --seed=1000 \
+  --policy.optimizer_lr=2.5e-5 \
+  --output_dir=outputs/train/ballast_only --job_name=ballast_only \
+  --policy.device=cuda 2>&1 | tee /tmp/train_ballast_only.log
+
+python scripts/eval_smolvla.py \
+  --checkpoint outputs/train/ballast_only/checkpoints/003400/pretrained_model \
+  --num_episodes 200 --seed 123 --debug_grounding --max_steps 150 --n_action_steps 5 \
+  --headless 2>&1 | tee /tmp/eval200_ballast_only_003400.log
+```
+
+- **`--steps=3400`, not 6,500.** The mixed arms ran 6,500 steps over 17,590 frames
+  (~23.6 epochs), so each base demo was seen ~23.6 times. 3,400 steps over 9,179 frames
+  reproduces that exposure. Matching the *step count* instead would show the base demos
+  about twice as often, and any difference would read as "trained harder on demos"
+  rather than "no corrections".
+- **`--take 100 --seed 0`** reproduces the arms' slice exactly; `merge_npy_datasets.py`
+  records `merged_from` / `merged_episode` per episode, so the slice stays auditable.
+
 ---
 
 *Not the VLA path:* `python scripts/train.py --task XArm-RandomBlock-Residual --pilot kNNPilot --num_envs 128 --headless`
