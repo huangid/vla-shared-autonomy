@@ -391,6 +391,93 @@ task or the base policy.
 no further rounds will be run in search of a favourable result. A null across three
 rounds — at 1.6x label separation and 1.5x corrective share — is the finding.
 
+## 12. Round 3 result: the hypothesis is refuted, with a dose-response
+
+Executed as pre-registered in section 11. Four arms, each `rb_smolvla_v5/025000`
+finetuned on 100 correction episodes mixed with the same seeded 100 base demos,
+6,500 steps, lr 2.5e-5, seed 1000. 200 paired evaluation episodes, `--seed 123`, the
+same episode sequence as every earlier model.
+
+| Model | alpha | Labels | Success | Within 1.5 cm | Grounding |
+|---|---|---|---|---|---|
+| base v5 @ 25k | — | — | 104/200 = 52.0% | 130/200 | 76% |
+| `mix08_blend` | 0.8 | a_exec | **106/200 = 53.0%** | 123/200 | 80% |
+| `mix05b_blend` | 0.5 | a_exec | 98/200 = 49.0% | 114/200 | 79% |
+| `mix05b_human` | 0.5 | a_H | 95/200 = 47.5% | 116/200 | 78% |
+| `mix08_human` | 0.8 | a_H | **68/200 = 34.0%** | 120/200 | 72% |
+
+**Primary test (declared in advance):** `mix08_human` vs `mix08_blend` —
+discordant 31/69, **p = 0.00018**. The blend wins decisively.
+
+| Secondary | Result |
+|---|---|
+| a_H vs a_exec at alpha = 0.5 | 95 vs 98, p = 0.83 — null |
+| base vs `mix08_human` | **p = 0.0011** — training on a_H actively harms |
+| base vs `mix08_blend` | p = 0.93 — the blend is harmless |
+| base vs either alpha = 0.5 arm | p = 0.44 / 0.61 — null |
+
+### The hypothesis was wrong, and the pattern says why
+
+The study predicted a_H would be the stronger signal because a_exec is contaminated by
+the policy's own action. The opposite holds: **a_exec is the better label, and a_H is
+actively damaging — but only when the two diverge.**
+
+| alpha | Label gap | a_H vs a_exec |
+|---|---|---|
+| 0.5 | 6.2 cm | null (p = 0.83) |
+| 0.8 | 10.9 cm | **a_exec wins (p = 0.00018)** |
+
+That is a dose-response: the effect is absent when the labels are close and large when
+they separate, which is what a real mechanism looks like rather than noise. It also
+explains rounds 1 and 2 — both ran at alpha = 0.5, where there is nothing to detect.
+
+**The mechanism is off-policy mismatch, visible directly in the labels.** On the steps
+where the two disagree:
+
+| | Distance the label asks the arm to travel |
+|---|---|
+| Base demos (what the policy learned from) | 8.7 cm |
+| `D_blend` at alpha = 0.8 | 3.7 cm |
+| `D_human` at alpha = 0.8 | **14.1 cm** |
+
+At alpha = 0.8 the human has only 20% authority, so they push hard and `a_H` becomes a
+target far beyond anything the robot executed — 14.1 cm, well outside the demo
+distribution. Those labels are paired with observations that `a_exec` produced, not
+`a_H`, so the policy is taught to command large displacements that never generated the
+states it sees. The resulting policy overshoots: it still reaches grasping range about
+as often (120/200 vs 123/200) but converts far less, loses grounding (72% vs 80%), and
+bins a distractor 9 times against the blend's 4.
+
+`a_exec` has no such problem: it is by construction what produced the next observation,
+so it is self-consistent imitation data.
+
+### What this means for the study
+
+1. **The answer is a_exec, not a_H** — the reverse of the hypothesis, at p = 0.00018 on
+   a pre-registered test.
+2. **The effect only exists when authority is skewed.** At alpha = 0.5, either label is
+   equally (un)helpful. The naive intuition "raw human intent is purer" fails precisely
+   where it would matter most.
+3. **Neither label improves on the base policy.** The best arm matches it (53.0% vs
+   52.0%, p = 0.93). Corrections at this scale do not raise success; the finding is
+   about which label avoids *harm*.
+4. **a_H is not "the human's intent" in an absolute-target action space.** It is the
+   human's command given the authority they were granted, so its magnitude is an
+   artefact of alpha. Any future use of raw human actions should rescale to the policy's
+   action distribution, or use a relative/velocity action space where the human's
+   command does not depend on alpha.
+
+### Caveats
+
+- One operator, one task, one base policy. The dose-response is within-study.
+- The alpha = 0.5 fresh set had a lower intervention rate (10% of steps) than both the
+  alpha = 0.8 set (24%) and round 2's alpha = 0.5 set (17%), so the alpha contrast is
+  partly confounded with how much the operator intervened as they grew practised.
+- Gripper authority reached the operator only partway through collection (see the fixes
+  in section 9); human-held gripper steps are 5-6% in both round-3 conditions.
+- The base checkpoint was selected on an underpowered 20-episode evaluation; only
+  `v5/025000` was ever characterised at n = 200.
+
 ## 12. Next
 
 1. Round 3 with a higher alpha (0.7-0.8) and corrections collected against the current
