@@ -146,6 +146,11 @@ Three further findings:
    magnitude is an artefact of alpha. Future work using raw human actions should
    rescale to the policy's action distribution, or use a relative/velocity action space.
 
+A control arm (`ballast_only`: the same 100 base demos, same recipe, **no**
+corrections) scores 48.0% and is indistinguishable from the base (p = 0.47). Against
+that control, no arm improves (best p = 0.40) and only `a_H` at alpha = 0.8 harms
+(p = 0.0051) — so the damage comes from the labels, not from the finetuning recipe.
+
 Separately, round 1 established that **training recipe matters more than label
 choice**: corrections-only finetuning cost 11-15 points, and adding base-demo ballast
 repaired it (p = 0.027). No arm in any round improved on the base policy.

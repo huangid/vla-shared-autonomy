@@ -478,24 +478,41 @@ so it is self-consistent imitation data.
 - The base checkpoint was selected on an underpowered 20-episode evaluation; only
   `v5/025000` was ever characterised at n = 200.
 
-## 13. Control arm: ballast without corrections (pending)
+## 13. Control arm: ballast without corrections
 
-Every finetuned arm trained on 100 correction episodes **plus 100 of the 400 base
-demos**, so comparisons against the base policy (`rb_smolvla_v5/025000`, trained on all
-400) confound two changes: adding corrections, and finetuning on a quarter of the
-original data. The primary test is unaffected — `mix08_human` and `mix08_blend` shared
-the identical 100-demo slice, so only the labels differ — but the secondary "does it
-beat base" claims are not clean.
+Every finetuned arm trained on correction episodes **plus 100 of the 400 base demos**,
+so "arm vs base policy" confounded two changes: adding corrections, and finetuning on a
+quarter of the original data. `ballast_only` isolates them — the same seeded 100-demo
+slice, same base checkpoint, lr and seed, 3,400 steps so those demos get the same ~23.7
+passes they received inside the mixed arms (measured 23.71 vs 23.6). No corrections.
 
-`ballast_only` removes the corrections and keeps everything else: the same seeded
-100-demo slice, the same base checkpoint, lr, and seed, at 3,400 steps so the base demos
-receive the same ~23.6 passes they got inside the mixed arms. See README step 12.
+**Control: 96/200 = 48.0%**, and it is indistinguishable from the 400-demo base policy
+(104/200, p = 0.47) — so finetuning on the 100-demo subset was not itself harmful, and
+the earlier base comparisons were sound.
 
-Once evaluated on the same 200 episodes, the secondary claims become
-"X vs finetuning without corrections" rather than "X vs the 400-demo base policy".
+All six models, 200 identical episodes, paired:
 
-Status: dataset built (100 episodes, 9,179 frames, slice verified identical to the
-arms'); training and evaluation outstanding.
+| Model | Success | vs control | vs base |
+|---|---|---|---|
+| `mix08_blend` (alpha 0.8, a_exec) | 106/200 = 53.0% | p = 0.40 | p = 0.93 |
+| base v5 @ 25k (400 demos) | 104/200 = 52.0% | p = 0.47 | — |
+| `mix05b_blend` (alpha 0.5, a_exec) | 98/200 = 49.0% | p = 0.92 | p = 0.61 |
+| **`ballast_only` (control)** | **96/200 = 48.0%** | — | p = 0.47 |
+| `mix05b_human` (alpha 0.5, a_H) | 95/200 = 47.5% | p = 1.00 | p = 0.44 |
+| `mix08_human` (alpha 0.8, a_H) | 68/200 = 34.0% | **p = 0.0051** | **p = 0.0011** |
+
+With the control in place the secondary claims sharpen:
+
+1. **Corrections never help.** No arm beats finetuning on the same demos *without*
+   corrections (best p = 0.40). The corrective signal — 5-12% of the training data —
+   adds nothing measurable at this scale.
+2. **Only `a_H` at alpha = 0.8 does harm, and it is the labels, not the recipe.**
+   `mix08_human` is significantly worse than the control (p = 0.0051) as well as the
+   base (p = 0.0011). The control shares its recipe, its demo slice and its step budget,
+   and differs only by having no correction episodes — so the damage is attributable to
+   the raw-human labels themselves.
+3. **Finetuning on a demo subset is harmless.** Control vs base p = 0.47, which
+   retrospectively validates the round 1-3 comparisons against the base.
 
 ## 14. Next
 
