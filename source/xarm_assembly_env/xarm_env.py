@@ -933,12 +933,20 @@ class XArmEnv(DirectRLEnv):
             device=dev,
         )
         bin_xy = torch.tensor(t.bin_pos[:2], device=dev)
+        # Keep blocks out from under the gripper's start pose. Without this a block can
+        # spawn beneath the fingers: the arm may knock it on the first motion, and the
+        # wrist camera sees it occluded from frame one — a corrupted episode that looks
+        # normal in the logs.
+        start_clear = float(getattr(t, "start_clearance", 0.0) or 0.0)
+        start_xy = torch.tensor(getattr(t, "start_eef_xy", (0.0, 0.0)), device=dev)
 
         pos = torch.zeros(n, 3, 2, device=dev)
         for i in range(3):
             cand = lo + span * torch.rand(n, 2, device=dev, generator=gen)
             for _ in range(50):
                 bad = torch.linalg.vector_norm(cand - bin_xy, dim=-1) < t.bin_clearance
+                if start_clear > 0.0:
+                    bad |= torch.linalg.vector_norm(cand - start_xy, dim=-1) < start_clear
                 if i > 0:
                     d = torch.linalg.vector_norm(pos[:, :i] - cand[:, None, :], dim=-1)  # (n, i)
                     bad |= (d < t.block_min_separation).any(dim=1)

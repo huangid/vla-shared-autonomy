@@ -411,6 +411,13 @@ class RandomBlock(ThreeBlocks):
     # clear table between bin edge and block edge at the closest, which is what lets
     # blocks spawn visibly near the bin instead of being pushed to the far side.
     bin_clearance: float = 0.12
+    # Blocks are also rejected within this radius of the gripper's start xy, so no
+    # episode begins with a block under the fingers. Sized against usable area, not
+    # just safety: the start pose sits inside the spawn square, so the exclusion disc
+    # comes straight out of it — 0.08 would leave only 29% of the region usable and
+    # bank every block into the corners. 0.05 clears the gripper footprint plus a
+    # block half-diagonal and keeps 70%. 0 disables the check.
+    start_clearance: float = 0.05
     # When set, every reset draws the SAME block layout (the sampler runs off a
     # generator re-seeded with this value each call). Used to collect "same scene,
     # different instruction" demos: replay one layout across all three colours so
