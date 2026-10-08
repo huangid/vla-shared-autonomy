@@ -84,6 +84,9 @@ parser.add_argument("--rollout_dir", type=str, default=None,
                     help="Where to record. Default: logs/rollouts/shared_autonomy_<task>.")
 parser.add_argument("--yes", "-y", action="store_true", default=False,
                     help="Overwrite an existing rollout dir without prompting.")
+parser.add_argument("--two_cam", action="store_true", default=False,
+                    help="Use the two-camera setup (wrist + square-on side), front camera off. "
+                         "Must match the camera set the checkpoint was trained with.")
 AppLauncher.add_app_launcher_args(parser)
 parser.set_defaults(kit_args="--/log/level=error --/log/fileLogLevel=error --/log/outputStreamLevel=error")
 args_cli, hydra_args = parser.parse_known_args()
@@ -109,14 +112,41 @@ from residual_copilot.pilot_models.spacemouse_pilot import SpaceMousePilot
 TASK_ID = f"XArm-{args_cli.task}-GuidedDiffusion"
 
 
+# One feature key per camera the checkpoint was trained with; matched to env views in
+# the order npy_to_lerobot declared them (sorted view names).
+VIEW_ATTR_ORDER = ("front_rgb", "wrist_rgb", "upper_right_rgb")
+
+
 def resolve_image_key(pilot):
-    """Which image key this checkpoint expects (camera1 after --rename_map training)."""
+    """Image key(s) this checkpoint expects — a str for one camera, a list for several."""
     if args_cli.image_key:
-        return args_cli.image_key
-    keys = sorted(pilot.policy.config.image_features)
+        keys = [k.strip() for k in args_cli.image_key.split(",")]
+    else:
+        keys = sorted(pilot.policy.config.image_features)
     if not keys:
         raise RuntimeError("checkpoint declares no image features")
-    return keys[0]
+    return keys[0] if len(keys) == 1 else keys
+
+
+def resolve_view_attrs(env_u, n_keys):
+    available = [a for a in VIEW_ATTR_ORDER
+                 if getattr(env_u, a.replace("_rgb", "_camera"), None) is not None]
+    if len(available) < n_keys:
+        raise RuntimeError(
+            f"checkpoint expects {n_keys} camera(s); the env renders {len(available)} "
+            f"({available}). Enable the matching cameras or use a matching checkpoint.")
+    return available[:n_keys]
+
+
+# Same subdir names play.py writes, so convert_demos --views works on both.
+CAMERA_DIRS = (("front_camera", "camera_0"), ("wrist_camera", "camera_wrist"),
+               ("upper_right_camera", "camera_side"))
+
+
+def enabled_views(env_u):
+    """[(subdir, camera)] for every camera this env renders."""
+    return [(sub, getattr(env_u, attr)) for attr, sub in CAMERA_DIRS
+            if getattr(env_u, attr, None) is not None]
 
 
 def current_rgb(env_u):
@@ -155,11 +185,15 @@ def current_qpos(env_u):
 
 
 def build_frame(env_u, image_key):
-    return {
-        image_key: current_rgb(env_u),
-        "observation.state": policy_state(env_u),
-        "task": env_u.instructions[0],
-    }
+    frame = {"observation.state": policy_state(env_u), "task": env_u.instructions[0]}
+    keys = [image_key] if isinstance(image_key, str) else list(image_key)
+    if len(keys) == 1 and getattr(env_u, "front_camera", None) is not None:
+        frame[keys[0]] = current_rgb(env_u)
+    else:
+        for key, attr in zip(keys, resolve_view_attrs(env_u, len(keys))):
+            cam = getattr(env_u, attr.replace("_rgb", "_camera"))
+            frame[key] = cam.data.output["rgb"][0]
+    return frame
 
 
 def blend(a_r, a_h, alpha, human_grip_in_charge):
@@ -285,6 +319,11 @@ def run(env_cfg, agent_cfg):
     # block — an answer key the training data never had.
     env_cfg.vis.vis_obs = False
     env_cfg.num_rerenders_on_reset = 2
+    if args_cli.two_cam:
+        env_cfg.use_wrist_camera = True
+        env_cfg.use_upper_right_camera = True
+        env_cfg.use_front_camera = False
+        print("[INFO] two-camera setup: wrist + side, front camera OFF")
     env_cfg.pilot_model = "knn"     # env-internal pilot is unused; a_H comes from our own instance
     env_cfg.pilot_type = "none"
 
@@ -323,7 +362,7 @@ def run(env_cfg, agent_cfg):
         while steps < args_cli.max_steps:
             obs_t = obs_dict["policy"] if isinstance(obs_dict, dict) else obs_dict
             obs_np = obs_t[0].detach().cpu().numpy()
-            rgb = current_rgb(env_u)
+            rgb = {sub: cam.data.output["rgb"][0] for sub, cam in enabled_views(env_u)}
 
             with torch.inference_mode():
                 a_r = robot.act(build_frame(env_u, image_key)).to(env_u.device).view(-1).float()
@@ -365,7 +404,7 @@ def run(env_cfg, agent_cfg):
                 buffers.append(timestep_record(
                     obs_np, a_h.cpu().numpy(), a_r.cpu().numpy(), a_exec.cpu().numpy(),
                     current_qpos(env_u), d_t, intervening, grip_override))
-                frames.append(rgb.cpu().numpy().astype(np.uint8))
+                frames.append({s: v.cpu().numpy().astype(np.uint8) for s, v in rgb.items()})
 
             with torch.inference_mode():
                 obs_dict, _rew, terminated, truncated, _info = env.step(a_exec.view(1, -1))
@@ -393,13 +432,15 @@ def run(env_cfg, agent_cfg):
         if rollout_path is not None:
             ep_dir = os.path.join(rollout_path, ep_name)
             os.makedirs(os.path.join(ep_dir, "robot"), exist_ok=True)
-            os.makedirs(os.path.join(ep_dir, "camera_0", "rgb"), exist_ok=True)
+            for sub, _cam in enabled_views(env_u):
+                os.makedirs(os.path.join(ep_dir, sub, "rgb"), exist_ok=True)
             for t, entry in enumerate(buffers):
                 with open(os.path.join(ep_dir, "robot", f"{t:06d}.json"), "w") as f:
                     json.dump(entry, f, indent=2)
-            for t, img in enumerate(frames):
-                cv2.imwrite(os.path.join(ep_dir, "camera_0", "rgb", f"{t:06d}.jpg"),
-                            cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+            for t, per_view in enumerate(frames):
+                for sub, img in per_view.items():
+                    cv2.imwrite(os.path.join(ep_dir, sub, "rgb", f"{t:06d}.jpg"),
+                                cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
             ep_stats[ep_name] = {**meta, "success": success, "steps": steps,
                                  "alpha": alpha, "corrective_steps": n_corr}
 

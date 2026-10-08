@@ -101,6 +101,16 @@ from residual_copilot.pilot_models.smolvla_pilot import SmolVLA_Pilot
 TASK_ID = f"XArm-{args_cli.task}-GuidedDiffusion"
 
 
+def resolve_image_keys(pilot):
+    """Every image key this checkpoint expects, sorted — one per camera."""
+    if args_cli.image_key:
+        return [k.strip() for k in args_cli.image_key.split(",")]
+    keys = sorted(pilot.policy.config.image_features)
+    if not keys:
+        raise RuntimeError("checkpoint declares no image features")
+    return keys
+
+
 def resolve_image_key(pilot):
     """Which image key this checkpoint expects.
 
@@ -117,6 +127,25 @@ def resolve_image_key(pilot):
         print(f"[WARN] checkpoint declares {len(keys)} image features {keys}; using {keys[0]}. "
               f"Pass --image_key to override.")
     return keys[0]
+
+
+# A checkpoint declares one feature key per camera it was trained with. Map each to the
+# env attribute holding that view's RGB. Training renames views to SmolVLA's camera1/2/3
+# (see --rename_map), so match on the ORDER the dataset's views were declared: sorted
+# view names, which is how npy_to_lerobot wrote them.
+VIEW_ATTR_ORDER = ("front_rgb", "wrist_rgb", "upper_right_rgb")
+
+
+def resolve_view_attrs(env_u, n_keys):
+    """Env RGB attributes to feed, one per image key the checkpoint expects."""
+    available = [a for a in VIEW_ATTR_ORDER if getattr(env_u, a.replace("_rgb", "_camera"), None)]
+    if len(available) < n_keys:
+        raise RuntimeError(
+            f"checkpoint expects {n_keys} camera(s) but the env renders {len(available)} "
+            f"({available}). Enable the matching cameras (--two_cam / --wrist_camera / "
+            f"--side_camera) or use a checkpoint trained with this camera set."
+        )
+    return available[:n_keys]
 
 
 def current_rgb(env_u):
@@ -147,6 +176,11 @@ def refresh_camera(env_u, passes: int = 2):
 
 
 def build_frame(env_u, image_key):
+    """One observation for the policy.
+
+    `image_key` is a single key for one-camera checkpoints, or a list for multi-camera
+    ones; each is filled from the corresponding env camera in VIEW_ATTR_ORDER.
+    """
     state = torch.cat([
         env_u.fingertip_midpoint_pos[0],
         env_u.fingertip_midpoint_quat[0],
@@ -154,11 +188,15 @@ def build_frame(env_u, image_key):
         env_u.ee_linvel_fd[0],
         env_u.ee_angvel_fd[0],
     ], dim=-1)  # (14,)
-    return {
-        image_key: current_rgb(env_u),                   # (H, W, 3) uint8, read live
-        "observation.state": state,
-        "task": env_u.instructions[0],
-    }
+    frame = {"observation.state": state, "task": env_u.instructions[0]}
+    keys = [image_key] if isinstance(image_key, str) else list(image_key)
+    if len(keys) == 1 and getattr(env_u, "front_camera", None) is not None:
+        frame[keys[0]] = current_rgb(env_u)              # (H, W, 3) uint8, read live
+    else:
+        for key, attr in zip(keys, resolve_view_attrs(env_u, len(keys))):
+            cam = getattr(env_u, attr.replace("_rgb", "_camera"))
+            frame[key] = cam.data.output["rgb"][0]       # read live, like current_rgb
+    return frame
 
 
 @hydra_task_config(TASK_ID, "rl_games_cfg_entry_point")
@@ -267,8 +305,9 @@ def run(env_cfg, agent_cfg):
     print(f"[INFO] executing {pilot.policy.config.n_action_steps} of each "
           f"{pilot.policy.config.chunk_size}-step chunk before re-planning "
           f"({pilot.policy.config.n_action_steps / 15.0:.2f}s open-loop)")
-    image_key = resolve_image_key(pilot)
-    print(f"[INFO] feeding observations under image key: {image_key}")
+    image_key = resolve_image_keys(pilot)
+    image_key = image_key[0] if len(image_key) == 1 else image_key
+    print(f"[INFO] feeding observations under image key(s): {image_key}")
 
     obs, _ = env.reset()
     pilot.reset()

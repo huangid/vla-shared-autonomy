@@ -98,15 +98,22 @@ def episode_state_action(ep: dict):
     return state, env_state, action
 
 
-def frames_dir(meta: dict, camera_subdir: str) -> Path:
-    """Where this episode's RGB frames live.
+def frames_dir(meta: dict, camera_subdir: str, view: str = "front") -> Path:
+    """Where this episode's RGB frames live, for one camera view.
 
-    Prefers the persistent copy convert_demos.py makes ("frames"); falls back to
-    the original rollout dir for sidecars written before that existed — note those
-    go stale as soon as another demo is recorded into the same rollout dir.
+    Prefers the persistent copy convert_demos.py makes ("frames", or "frames_<view>"
+    for extra views); falls back to the original rollout dir for sidecars written
+    before that existed — note those go stale as soon as another demo is recorded
+    into the same rollout dir.
     """
-    if meta.get("frames"):
-        return Path(meta["frames"])
+    key = "frames" if view == "front" else f"frames_{view}"
+    if meta.get(key):
+        return Path(meta[key])
+    if view != "front":
+        raise FileNotFoundError(
+            f"sidecar has no {key!r} for this episode — was it converted with "
+            f"convert_demos.py --views?"
+        )
     return Path(meta["source"]) / meta["episode"] / camera_subdir
 
 
@@ -137,7 +144,13 @@ def main():
                         help="Attach observation.images.<name> from recorded RGB frames (SmolVLA format). "
                              "Requires the '<input>.tasks.json' sidecar from convert_demos.py.")
     parser.add_argument("--image_name", type=str, default="front",
-                        help="Camera name -> feature key observation.images.<image_name>.")
+                        help="Camera name -> feature key observation.images.<image_name>. "
+                             "Single-view datasets only; use --image_names for several.")
+    parser.add_argument("--image_names", type=str, default=None,
+                        help="Multi-camera datasets: comma-separated view names recorded by "
+                             'convert_demos.py --views, e.g. "wrist,side". Each becomes '
+                             "observation.images.<name>, read from the sidecar's frames_<name> "
+                             "entry. Overrides --image_name.")
     parser.add_argument("--camera_subdir", type=str, default="camera_0/rgb",
                         help="Per-episode subdir holding the RGB frames.")
     parser.add_argument("--image_dtype", type=str, choices=["video", "image"], default="video")
@@ -161,7 +174,9 @@ def main():
         )
 
     features = dict(STATE_FEATURES)
-    image_key = f"observation.images.{args.image_name}"
+    views = ([v.strip() for v in args.image_names.split(",")] if args.image_names
+             else [args.image_name])
+    image_keys = {v: f"observation.images.{v}" for v in views}
 
     # In image mode the VLA grounds spatial relations from pixels + language, so the
     # privileged relative-position vector is dropped (it also isn't available at
@@ -170,19 +185,22 @@ def main():
         features.pop("observation.environment_state", None)
 
     if args.images:
-        # Probe frame size from the first episode's first frame.
+        # Probe each view's frame size independently — the wrist camera is deliberately
+        # lower resolution than the third-person one.
         probe = sidecar[sorted(demos.keys())[0]]
-        probe_dir = frames_dir(probe, args.camera_subdir)
-        probe_files = sorted(probe_dir.glob("*.jpg")) + sorted(probe_dir.glob("*.png"))
-        if not probe_files:
-            raise FileNotFoundError(f"no RGB frames in {probe_dir}")
-        h, w = np.asarray(Image.open(sorted(set(probe_files))[0]).convert("RGB")).shape[:2]
-        features[image_key] = {
-            "dtype": args.image_dtype,
-            "shape": (h, w, 3),
-            "names": ["height", "width", "channels"],
-        }
-        print(f"[INFO] images: {image_key}  {w}x{h}  dtype={args.image_dtype}")
+        for v in views:
+            probe_dir = frames_dir(probe, args.camera_subdir, v)
+            probe_files = sorted(set(sorted(probe_dir.glob("*.jpg")) +
+                                     sorted(probe_dir.glob("*.png"))))
+            if not probe_files:
+                raise FileNotFoundError(f"no RGB frames in {probe_dir}")
+            h, w = np.asarray(Image.open(probe_files[0]).convert("RGB")).shape[:2]
+            features[image_keys[v]] = {
+                "dtype": args.image_dtype,
+                "shape": (h, w, 3),
+                "names": ["height", "width", "channels"],
+            }
+            print(f"[INFO] images: {image_keys[v]}  {w}x{h}  dtype={args.image_dtype}")
 
     if args.overwrite and args.root and Path(args.root).exists():
         print(f"[INFO] removing existing dataset at {args.root}")
@@ -208,9 +226,10 @@ def main():
         state, env_state, action = episode_state_action(demos[ep_idx])
         n = state.shape[0]
 
-        images = None
+        images = {}
         if args.images:
-            images = load_episode_images(frames_dir(meta, args.camera_subdir), n)
+            for v in views:
+                images[v] = load_episode_images(frames_dir(meta, args.camera_subdir, v), n)
 
         for t in range(n):
             frame = {
@@ -220,8 +239,8 @@ def main():
             }
             if "observation.environment_state" in features:
                 frame["observation.environment_state"] = env_state[t]
-            if images is not None:
-                frame[image_key] = images[t]
+            for v, arr in images.items():
+                frame[image_keys[v]] = arr[t]
             dataset.add_frame(frame)
         dataset.save_episode()
         print(f"Saved episode {ep_idx} ({n} steps) — task: {task!r}")

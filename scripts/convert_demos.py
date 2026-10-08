@@ -44,6 +44,12 @@ parser.add_argument("--all", action="store_true",
                     help="Include all episodes, not just successful ones")
 parser.add_argument("--append", action="store_true",
                     help="Append to existing output instead of overwriting.")
+parser.add_argument("--views", type=str, default=None,
+                    help='Multi-camera recordings: comma-separated "name:subdir" pairs, e.g. '
+                         '"wrist:camera_wrist/rgb,side:camera_side/rgb". Each view is copied to '
+                         "its own persistent frames store and recorded in the sidecar as "
+                         "frames_<name> / n_frames_<name>, so npy_to_lerobot can attach one "
+                         "image key per view. Overrides --camera_subdir when given.")
 parser.add_argument("--camera_subdir", type=str, default="camera_0/rgb",
                     help="Per-episode subdir holding the recorded RGB frames.")
 parser.add_argument("--no_frames", action="store_true",
@@ -85,6 +91,25 @@ MIN_STEPS = 5
 rollout = Path(args.rollout_dir).resolve()
 output = Path(args.output)
 frames_root = output.parent / f"{output.stem}_frames"
+
+# Which camera views to carry through. Single-view recordings keep the historical
+# layout exactly ("front" -> <output>_frames/episode_NNNNN, sidecar keys frames /
+# n_frames), so existing datasets and npy_to_lerobot calls are unaffected.
+if args.views:
+    VIEWS = []
+    for spec in args.views.split(","):
+        if ":" not in spec:
+            raise SystemExit(f"--views entry {spec!r} is not name:subdir")
+        name, sub = spec.split(":", 1)
+        VIEWS.append((name.strip(), sub.strip()))
+else:
+    VIEWS = [("front", args.camera_subdir)]
+
+
+def _frames_dir(view_name, npy_idx):
+    base = frames_root if view_name == "front" else frames_root.with_name(
+        f"{frames_root.name}_{view_name}")
+    return base / f"episode_{npy_idx:05d}"
 
 # Which episodes succeeded, plus instruction / layout metadata — from meta/stats.json.
 stats = {}
@@ -263,25 +288,32 @@ for ep_dir in ep_dirs:
             entry_meta["task" if key == "instruction" else key] = ep_stats[key]
 
     # Copy the RGB frames out of the volatile rollout dir into a persistent store,
-    # renumbered to match the kept timesteps one-for-one.
-    rgb_src = ep_dir / args.camera_subdir
-    if not args.no_frames and rgb_src.is_dir():
-        src_frames = sorted(rgb_src.glob("*.jpg")) + sorted(rgb_src.glob("*.png"))
-        src_frames = sorted(set(src_frames))
-        dst_dir = frames_root / f"episode_{npy_idx:05d}"
-        if dst_dir.exists():
-            shutil.rmtree(dst_dir)
-        dst_dir.mkdir(parents=True, exist_ok=True)
-        n_copied = 0
-        for new_t, orig_t in enumerate(kept_step_idx):
-            if orig_t >= len(src_frames):
-                break
-            shutil.copy2(src_frames[orig_t], dst_dir / f"{new_t:06d}{src_frames[orig_t].suffix}")
-            n_copied += 1
-        entry_meta["frames"] = str(dst_dir)
-        entry_meta["n_frames"] = n_copied
-        if n_copied != len(kept_step_idx):
-            print(f"  WARNING: {ep_name}: copied {n_copied} frames for {len(kept_step_idx)} steps.")
+    # renumbered to match the kept timesteps one-for-one. One store per view.
+    if not args.no_frames:
+        for view_name, subdir in VIEWS:
+            rgb_src = ep_dir / subdir
+            if not rgb_src.is_dir():
+                if view_name != "front":
+                    print(f"  WARNING: {ep_name}: no {subdir} for view '{view_name}'")
+                continue
+            src_frames = sorted(set(sorted(rgb_src.glob("*.jpg")) + sorted(rgb_src.glob("*.png"))))
+            dst_dir = _frames_dir(view_name, npy_idx)
+            if dst_dir.exists():
+                shutil.rmtree(dst_dir)
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            n_copied = 0
+            for new_t, orig_t in enumerate(kept_step_idx):
+                if orig_t >= len(src_frames):
+                    break
+                shutil.copy2(src_frames[orig_t],
+                             dst_dir / f"{new_t:06d}{src_frames[orig_t].suffix}")
+                n_copied += 1
+            suffix = "" if view_name == "front" else f"_{view_name}"
+            entry_meta[f"frames{suffix}"] = str(dst_dir)
+            entry_meta[f"n_frames{suffix}"] = n_copied
+            if n_copied != len(kept_step_idx):
+                print(f"  WARNING: {ep_name}/{view_name}: copied {n_copied} frames "
+                      f"for {len(kept_step_idx)} steps.")
 
     new_meta[npy_idx] = entry_meta
     kept += 1
