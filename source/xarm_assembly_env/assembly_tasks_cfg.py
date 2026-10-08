@@ -400,12 +400,14 @@ class RandomBlock(ThreeBlocks):
     # region has shifted to +y to keep clear of it. Data recorded here is NOT compatible
     # with main's datasets or checkpoints — different scene AND different cameras.
     block_x_range: tuple = (0.30, 0.44)
-    block_y_range: tuple = (-0.04, 0.16)
+    block_y_range: tuple = (-0.08, 0.16)
     block_min_separation: float = 0.06
-    # Blocks are rejected within this radius of the bin centre. The block region no
-    # longer overlaps the bin at all, so this is now a safety margin rather than the
-    # main mechanism.
-    bin_clearance: float = 0.14
+    # Blocks are rejected within this radius of the bin centre. Sized from the geometry
+    # rather than guessed: the bin is 12 cm square (half-diagonal 0.085) and a block is
+    # 3 cm (half-diagonal 0.021), so 0.106 is the contact limit. 0.12 leaves ~4.5 cm of
+    # clear table between bin edge and block edge at the closest, which is what lets
+    # blocks spawn visibly near the bin instead of being pushed to the far side.
+    bin_clearance: float = 0.12
     # When set, every reset draws the SAME block layout (the sampler runs off a
     # generator re-seeded with this value each call). Used to collect "same scene,
     # different instruction" demos: replay one layout across all three colours so
@@ -423,9 +425,9 @@ class RandomBlock(ThreeBlocks):
     # To the robot's right (-y, since the base faces +x) and under the side camera at
     # (0.37, -0.55, 0.62). Its x matches the block region's centre x (0.37), so the bin
     # centre and the block-region centre lie on a single line parallel to y — the same
-    # line the side camera looks along. Reach radius 0.41 m, well inside the 0.54 m of
+    # line the side camera looks along. Reach radius 0.39 m, well inside the 0.54 m of
     # the original straight-ahead bin, so teleop stays comfortable.
-    bin_pos: tuple = (0.37, -0.17, 0.0025)
+    bin_pos: tuple = (0.37, -0.13, 0.0025)
 
     # Starting fingertip pose: pulled in over the block region and lifted well
     # clear of the blocks so the arm starts fairly upright, not over-extended.
