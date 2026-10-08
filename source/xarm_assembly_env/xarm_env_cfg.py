@@ -131,13 +131,14 @@ class UpperRightCameraCfg:
         horizontal_aperture=20.955,
         clipping_range=(0.05, 4.0),
     )
-    # 50 cm forward, 45 cm to the robot's right (+y), 60 cm up. The rotation is a
-    # look-at toward the centre of the block spawn area (0.37, 0.0, 0.012), computed
-    # with the same construction that reproduces the calibrated front camera's optical
-    # axis to three decimals. Optical axis: [-0.17, -0.60, -0.78] (51 deg below
-    # horizontal, versus the front camera's 33 deg).
-    t: list = [0.50, 0.45, 0.60]
-    q: list = [-0.0463, 0.1323, 0.9347, -0.3268]   # wxyz
+    # 50 cm forward, 45 cm to the robot's right, 60 cm up, aimed at the workspace just
+    # above the table (0.37, 0.0, 0.05) so the arm and all three blocks sit in frame.
+    # NOTE the sign: the base faces +x, so the robot's RIGHT is -y. The rotation is a
+    # look-at computed with the construction that reproduces the calibrated front
+    # camera's optical axis to three decimals. Optical axis [-0.18, 0.62, -0.76],
+    # 50 deg below horizontal versus the front camera's 33 deg.
+    t: list = [0.50, -0.45, 0.60]
+    q: list = [-0.342, 0.9292, 0.1315, -0.0484]   # wxyz
 
 
 @configclass
@@ -162,17 +163,14 @@ class WristCameraCfg:
     # Pose in link7's LOCAL frame (link7 is rotated 180 deg about x relative to the
     # world, and the fingertip hangs 16.5 cm below it).
     #
-    # SIDE mount: 10 cm to the side and 2 cm below link7, aimed 2 cm beyond and 5 cm
-    # below the fingertip. A camera mounted directly BEHIND the wrist puts the gripper
-    # housing across the middle of the frame — measured, it covered the top 60% — which
-    # hides the target at exactly the moment of grasp. Offsetting laterally moves the
-    # housing to the frame edge and keeps the line of sight to the grasp point clear.
-    # Aimed at the grasp point just below the fingertip rather than ahead of it:
-    # aiming forward pushed the fingers out of frame and cropped blocks behind the
-    # hand. Pulled back to ~31 cm so the near finger occupies a corner rather than the
-    # centre, while the grasp point stays centred. 82 deg horizontal FOV.
-    t: list = [-0.0685, -0.1565, -0.06]
-    q: list = [-0.2208, -0.0684, -0.2878, -0.9294]   # wxyz
+    # FRONT mount: on the leading face of the gripper (+x, the reaching direction),
+    # 5.5 cm forward of the fingertip and 8.5 cm above it, looking back and down at the
+    # grasp point 14 cm away. Earlier attempts were rejected: behind the wrist the
+    # housing covered the top 60% of the frame, and a side mount 16 cm out looked like
+    # an external camera rather than something bolted to the hand.
+    # 82 deg horizontal FOV.
+    t: list = [0.0549, -0.003, 0.08]
+    q: list = [0.6762, 0.1256, -0.1325, -0.7137]   # wxyz
 
 
 @configclass

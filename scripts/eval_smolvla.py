@@ -66,6 +66,14 @@ parser.add_argument("--upper_right_camera", action="store_true", default=False,
                          "than the calibrated front camera).")
 parser.add_argument("--dump_upper_right", type=str, default=None,
                     help="With --dump_only: also write the upper-right view here.")
+parser.add_argument("--ur_pos", type=str, default=None,
+                    help='Override the upper-right camera position, "x,y,z" in metres '
+                         '(robot base frame; the base faces +x so the robot\'s RIGHT is -y). '
+                         "Lets you re-aim without editing the config.")
+parser.add_argument("--ur_aim", type=str, default=None,
+                    help='Point the upper-right camera looks at, "x,y,z". Default aims at the '
+                         "gripper's home position (0.36, 0, 0.18). Rotation is computed as a "
+                         "look-at, so the horizon stays level.")
 parser.add_argument("--dump_frame", type=str, default=None,
                     help="Save the first sim camera frame to this path (PNG) for visual comparison "
                          "against a training frame.")
@@ -173,6 +181,28 @@ def run(env_cfg, agent_cfg):
         env_cfg.use_wrist_camera = True
     if args_cli.upper_right_camera or args_cli.dump_upper_right:
         env_cfg.use_upper_right_camera = True
+    if args_cli.ur_pos or args_cli.ur_aim:
+        import numpy as _np
+        from scipy.spatial.transform import Rotation as _R
+
+        def _triple(s, default):
+            return _np.array([float(v) for v in s.split(",")]) if s else _np.array(default)
+
+        pos = _triple(args_cli.ur_pos, env_cfg.upper_right_camera.t)
+        aim = _triple(args_cli.ur_aim, [0.36, 0.0, 0.18])     # the gripper's home pose
+        f = aim - pos; f /= _np.linalg.norm(f)
+        x = _np.cross(f, _np.array([0.0, 0.0, 1.0]))          # keeps the horizon level
+        x /= _np.linalg.norm(x)
+        M = _np.column_stack([x, _np.cross(f, x), f])
+        if _np.linalg.det(M) < 0:
+            x = -x
+            M = _np.column_stack([x, _np.cross(f, x), f])
+        q = _R.from_matrix(M).as_quat()                        # xyzw
+        env_cfg.upper_right_camera_cfg.offset.pos = tuple(float(v) for v in pos)
+        env_cfg.upper_right_camera_cfg.offset.rot = (float(q[3]), float(q[0]),
+                                                     float(q[1]), float(q[2]))
+        print(f"[INFO] upper-right camera at {pos.round(3).tolist()} aiming at "
+              f"{aim.round(3).tolist()} | axis {(_R.from_quat(q).apply([0,0,1])).round(3).tolist()}")
     env_cfg.pilot_model = "knn"      # base action is unused; kNN just needs its local demo file
     env_cfg.pilot_type = "none"
     if args_cli.no_rand:
@@ -208,6 +238,10 @@ def run(env_cfg, agent_cfg):
             print(f"[GEOM] link7 quat wxyz:       {bq.round(4).tolist()}")
             print(f"[GEOM] fingertip (env frame): {ft.round(4).tolist()}")
             print(f"[GEOM] fingertip - link7:     {(ft - (bp - org)).round(4).tolist()}")
+            for fname in ("left_finger", "right_finger", "gripper_dummy"):
+                if fname in names:
+                    fp = env_u._robot.data.body_pos_w[0, names.index(fname)].cpu().numpy() - org
+                    print(f"[GEOM] {fname:15s} (env frame): {fp.round(4).tolist()}")
             if hasattr(env_u, "rb_block_xy"):
                 print(f"[GEOM] blocks xy: {env_u.rb_block_xy[0].cpu().numpy().round(3).tolist()}")
         except Exception as exc:
