@@ -167,9 +167,12 @@ class WristCameraCfg:
     # housing across the middle of the frame — measured, it covered the top 60% — which
     # hides the target at exactly the moment of grasp. Offsetting laterally moves the
     # housing to the frame edge and keeps the line of sight to the grasp point clear.
-    # Target distance ~22 cm; world optical axis [0.22, -0.45, -0.87] at the home pose.
-    t: list = [-0.036, -0.098, 0.02]
-    q: list = [-0.2502, -0.0666, -0.2486, -0.9334]   # wxyz
+    # Aimed at the grasp point just below the fingertip rather than ahead of it:
+    # aiming forward pushed the fingers out of frame and cropped blocks behind the
+    # hand. Pulled back to ~31 cm so the near finger occupies a corner rather than the
+    # centre, while the grasp point stays centred. 82 deg horizontal FOV.
+    t: list = [-0.0685, -0.1565, -0.06]
+    q: list = [-0.2208, -0.0684, -0.2878, -0.9294]   # wxyz
 
 
 @configclass
