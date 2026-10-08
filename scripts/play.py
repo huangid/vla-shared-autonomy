@@ -212,12 +212,15 @@ def _make_rollout_dir():
 # Each enabled camera writes to its own subdir. camera_0 stays the front view so
 # existing rollouts, convert_demos defaults and the 650 recorded episodes keep working;
 # the optional views get their own directories rather than renumbering anything.
-CAMERA_DIRS = {"front_rgb": "camera_0", "wrist_rgb": "camera_wrist",
-               "upper_right_rgb": "camera_side"}
+# Keyed on the SENSOR objects, which exist from env construction. The *_rgb buffers
+# are only populated inside _compute_intermediate_values during the first step, so
+# keying on those left this empty at setup time: no directories, no frames.
+CAMERA_DIRS = {"front_camera": "camera_0", "wrist_camera": "camera_wrist",
+               "upper_right_camera": "camera_side"}
 
 
 def _enabled_camera_views(env_unwrapped):
-    """[(attr, subdir)] for every camera this env is actually rendering."""
+    """[(camera_attr, subdir)] for every camera this env is actually rendering."""
     return [(a, d) for a, d in CAMERA_DIRS.items()
             if getattr(env_unwrapped, a, None) is not None]
 
@@ -743,7 +746,8 @@ def main():
                                 for _a, _sub in _enabled_camera_views(env_unwrapped):
                                     rgb_dir = os.path.join(
                                         rollout_path, f"episode_{env_id:04d}", _sub, "rgb")
-                                    img = getattr(env_unwrapped, _a)[env_id].cpu().numpy()
+                                    cam = getattr(env_unwrapped, _a)
+                                    img = cam.data.output["rgb"][env_id].cpu().numpy()
                                     cv2.imwrite(os.path.join(rgb_dir, f"{t:06d}.jpg"),
                                                 cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
 
