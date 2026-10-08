@@ -131,37 +131,45 @@ class UpperRightCameraCfg:
         horizontal_aperture=20.955,
         clipping_range=(0.05, 4.0),
     )
-    # 50 cm forward, 45 cm to the robot's right (+y), 60 cm up, pitched ~45 deg down
-    # and yawed to face the workspace centre.
+    # 50 cm forward, 45 cm to the robot's right (+y), 60 cm up. The rotation is a
+    # look-at toward the centre of the block spawn area (0.37, 0.0, 0.012), computed
+    # with the same construction that reproduces the calibrated front camera's optical
+    # axis to three decimals. Optical axis: [-0.17, -0.60, -0.78] (51 deg below
+    # horizontal, versus the front camera's 33 deg).
     t: list = [0.50, 0.45, 0.60]
-    q: list = [0.6408, 0.2962, 0.2962, 0.6408]   # wxyz
+    q: list = [-0.0463, 0.1323, 0.9347, -0.3268]   # wxyz
 
 
 @configclass
 class WristCameraCfg:
-    """Gripper-mounted camera, parented to link7.
+    """Gripper-mounted camera, parented to link7 so it travels with the hand.
 
     Deliberately lower resolution than the front camera: a wrist view is close to the
     object so fine detail costs little, while every extra pixel multiplies dataset size
     and video-decode time (already the training bottleneck).
 
-    The offset is from link7's frame, ROS convention (+Z forward along the optical
-    axis). `pos` places it behind and above the fingers, `q` tilts it to look down the
-    gripper. These are a starting point — verify with
-    `eval_smolvla.py --dump_only --dump_wrist /tmp/wrist.png` and adjust until the
-    fingertips sit in the lower third of the frame with the grasp target centred.
+    Verify any change with
+    `eval_smolvla.py --dump_only --dump_wrist /tmp/wrist.png`.
     """
     H: int = 240
     W: int = 320
     pinhole_cfg = sim_utils.PinholeCameraCfg(
         focal_length=12.0,          # ~55 deg horizontal FOV at this sensor size
-        focus_distance=0.15,        # fingers are ~10-20 cm away
+        focus_distance=0.15,        # the grasp point is ~20 cm away
         horizontal_aperture=20.955,
         clipping_range=(0.01, 2.0),
     )
-    # link7-relative pose: 6 cm back along the tool axis, 4 cm up, pitched 35 deg down.
-    t: list = [0.0, -0.04, -0.06]
-    q: list = [0.9063, 0.4226, 0.0, 0.0]     # wxyz, 50 deg about x
+    # Pose in link7's LOCAL frame (link7 is rotated 180 deg about x relative to the
+    # world, and the fingertip hangs 16.5 cm below it).
+    #
+    # SIDE mount: 10 cm to the side and 2 cm below link7, aimed 2 cm beyond and 5 cm
+    # below the fingertip. A camera mounted directly BEHIND the wrist puts the gripper
+    # housing across the middle of the frame — measured, it covered the top 60% — which
+    # hides the target at exactly the moment of grasp. Offsetting laterally moves the
+    # housing to the frame edge and keeps the line of sight to the grasp point clear.
+    # Target distance ~22 cm; world optical axis [0.22, -0.45, -0.87] at the home pose.
+    t: list = [-0.036, -0.098, 0.02]
+    q: list = [-0.2502, -0.0666, -0.2486, -0.9334]   # wxyz
 
 
 @configclass

@@ -193,6 +193,26 @@ def run(env_cfg, agent_cfg):
         refresh_camera(env_u)
         _Image.fromarray(current_rgb(env_u).cpu().numpy().astype("uint8")).save(out)
         print(f"[INFO] wrote {out}")
+        # Geometry needed to place wrist/third-person cameras analytically rather than
+        # by trial and error: link7's world pose (the wrist camera's parent frame), the
+        # fingertip it should look at, and where the blocks are.
+        try:
+            names = env_u._robot.data.body_names
+            i7 = names.index("link7")
+            bp = env_u._robot.data.body_pos_w[0, i7].cpu().numpy()
+            bq = env_u._robot.data.body_quat_w[0, i7].cpu().numpy()
+            org = env_u.scene.env_origins[0].cpu().numpy()
+            ft = env_u.fingertip_midpoint_pos[0].cpu().numpy()
+            print(f"[GEOM] body_names: {names}")
+            print(f"[GEOM] link7 pos (env frame): {(bp - org).round(4).tolist()}")
+            print(f"[GEOM] link7 quat wxyz:       {bq.round(4).tolist()}")
+            print(f"[GEOM] fingertip (env frame): {ft.round(4).tolist()}")
+            print(f"[GEOM] fingertip - link7:     {(ft - (bp - org)).round(4).tolist()}")
+            if hasattr(env_u, "rb_block_xy"):
+                print(f"[GEOM] blocks xy: {env_u.rb_block_xy[0].cpu().numpy().round(3).tolist()}")
+        except Exception as exc:
+            print(f"[GEOM] could not read robot geometry: {exc}")
+
         for flag, attr, label in ((args_cli.dump_wrist, "wrist_camera", "wrist"),
                                   (args_cli.dump_upper_right, "upper_right_camera", "upper-right")):
             if not flag:
