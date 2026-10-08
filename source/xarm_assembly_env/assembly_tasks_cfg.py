@@ -399,8 +399,11 @@ class RandomBlock(ThreeBlocks):
     # the robot's right (-y) so it sits under the square-on side camera, and the block
     # region has shifted to +y to keep clear of it. Data recorded here is NOT compatible
     # with main's datasets or checkpoints — different scene AND different cameras.
-    block_x_range: tuple = (0.30, 0.44)
-    block_y_range: tuple = (-0.08, 0.16)
+    # Square 16 x 16 cm. The original region was 14 x 30 cm, nearly twice as wide as
+    # deep, which biases the task toward left-right placement; a square region spreads
+    # the difficulty evenly over both axes.
+    block_x_range: tuple = (0.29, 0.45)
+    block_y_range: tuple = (-0.06, 0.10)
     block_min_separation: float = 0.06
     # Blocks are rejected within this radius of the bin centre. Sized from the geometry
     # rather than guessed: the bin is 12 cm square (half-diagonal 0.085) and a block is
