@@ -421,9 +421,11 @@ class RandomBlock(ThreeBlocks):
     # Fixed bin pose, pinned every reset. The bin geometry (kinematic, immovable)
     # is inherited from ThreeBlocks.fixed_asset.
     # To the robot's right (-y, since the base faces +x) and under the side camera at
-    # (0.37, -0.55, 0.62). Kept close in: reach radius 0.43 m, less than the 0.54 m of
+    # (0.37, -0.55, 0.62). Its x matches the block region's centre x (0.37), so the bin
+    # centre and the block-region centre lie on a single line parallel to y — the same
+    # line the side camera looks along. Reach radius 0.41 m, well inside the 0.54 m of
     # the original straight-ahead bin, so teleop stays comfortable.
-    bin_pos: tuple = (0.40, -0.17, 0.0025)
+    bin_pos: tuple = (0.37, -0.17, 0.0025)
 
     # Starting fingertip pose: pulled in over the block region and lifted well
     # clear of the blocks so the arm starts fairly upright, not over-extended.
