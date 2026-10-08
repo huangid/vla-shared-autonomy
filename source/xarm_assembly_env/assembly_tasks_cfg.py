@@ -405,7 +405,7 @@ class RandomBlock(ThreeBlocks):
     # Blocks are rejected within this radius of the bin centre. The block region no
     # longer overlaps the bin at all, so this is now a safety margin rather than the
     # main mechanism.
-    bin_clearance: float = 0.12
+    bin_clearance: float = 0.14
     # When set, every reset draws the SAME block layout (the sampler runs off a
     # generator re-seeded with this value each call). Used to collect "same scene,
     # different instruction" demos: replay one layout across all three colours so
@@ -421,9 +421,9 @@ class RandomBlock(ThreeBlocks):
     # Fixed bin pose, pinned every reset. The bin geometry (kinematic, immovable)
     # is inherited from ThreeBlocks.fixed_asset.
     # To the robot's right (-y, since the base faces +x) and under the side camera at
-    # (0.37, -0.65, 0.45). Kept close in: reach radius 0.44 m, less than the 0.54 m of
+    # (0.37, -0.55, 0.62). Kept close in: reach radius 0.43 m, less than the 0.54 m of
     # the original straight-ahead bin, so teleop stays comfortable.
-    bin_pos: tuple = (0.38, -0.22, 0.0025)
+    bin_pos: tuple = (0.40, -0.17, 0.0025)
 
     # Starting fingertip pose: pulled in over the block region and lifted well
     # clear of the blocks so the arm starts fairly upright, not over-extended.

@@ -131,14 +131,14 @@ class UpperRightCameraCfg:
         horizontal_aperture=20.955,
         clipping_range=(0.05, 4.0),
     )
-    # SQUARE-ON side view: 65 cm to the side at the workspace's own x (0.37), 45 cm up,
-    # looking straight along +y at the blocks. Being on an axis is what matters — the
-    # optical axis has no x component, so the table edges stay parallel to the image
-    # sides instead of converging, and roll is exactly zero. Diagonal placements were
-    # rejected for precisely that reason. Optical axis [0, 0.89, -0.45], 27 deg below
-    # horizontal, 73 cm from the target.
-    t: list = [0.37, -0.65, 0.45]
-    q: list = [-0.5231, 0.8523, 0.0, 0.0]   # wxyz
+    # SQUARE-ON side view: 55 cm to the side at the workspace's own x (0.37), 62 cm up,
+    # looking along +y at the blocks, 44 deg below horizontal. Being on an axis is what
+    # matters — camera x and aim x are both 0.37, so the optical axis has no x
+    # component, the table edges stay parallel to the image sides, and roll is exactly
+    # zero. Diagonal placements were rejected for precisely that reason; shallower
+    # angles (27, 37 deg) were tried and 44 chosen.
+    t: list = [0.37, -0.55, 0.62]
+    q: list = [-0.3869, 0.9221, 0.0, 0.0]   # wxyz
 
 
 @configclass
