@@ -90,8 +90,9 @@ class XArmEnv(DirectRLEnv):
         self.scene.sensors["held_asset_contact_sensor"] = self.held_asset_contact_sensor
 
         if self.cfg.vis.store_rgb:
-            self.front_camera = TiledCamera(self.cfg.front_camera_cfg)
-            self.scene.sensors["front_camera"] = self.front_camera
+            if getattr(self.cfg, "use_front_camera", True):
+                self.front_camera = TiledCamera(self.cfg.front_camera_cfg)
+                self.scene.sensors["front_camera"] = self.front_camera
             # Wrist view, parented to link7 (see WristCameraCfg). Off unless asked for:
             # it changes the observation space, so datasets with and without it are not
             # interchangeable.
@@ -522,7 +523,8 @@ class XArmEnv(DirectRLEnv):
         self.held_asset_force = self.held_asset_contact_sensor.data.net_forces_w.squeeze(1)
 
         if self.cfg.vis.store_rgb:
-            self.front_rgb = self.front_camera.data.output["rgb"]
+            if getattr(self, "front_camera", None) is not None:
+                self.front_rgb = self.front_camera.data.output["rgb"]
             if getattr(self, "wrist_camera", None) is not None:
                 self.wrist_rgb = self.wrist_camera.data.output["rgb"]
             if getattr(self, "upper_right_camera", None) is not None:
@@ -887,7 +889,8 @@ class XArmEnv(DirectRLEnv):
             self._sample_target(env_ids)
 
         if self.cfg.vis.store_rgb:
-            self.front_camera.reset(env_ids=env_ids)
+            if getattr(self, "front_camera", None) is not None:
+                self.front_camera.reset(env_ids=env_ids)
             if getattr(self, "wrist_camera", None) is not None:
                 self.wrist_camera.reset(env_ids=env_ids)
             if getattr(self, "upper_right_camera", None) is not None:

@@ -46,6 +46,14 @@ parser.add_argument("--layout_seed", type=int, default=None,
                     help="RandomBlock: reuse ONE block layout for every episode this run. Combine with "
                          "--target_color to record the same scene under different instructions, which "
                          "is what forces the policy to read the instruction instead of the layout.")
+parser.add_argument("--two_cam", action="store_true", default=False,
+                    help="Record the two-camera setup (wrist + square-on side view) INSTEAD of the "
+                         "calibrated front camera. Datasets recorded with and without this are not "
+                         "interchangeable: a policy trained on one cannot run in the other.")
+parser.add_argument("--wrist_camera", action="store_true", default=False,
+                    help="Add the gripper-mounted wrist view to whatever else is enabled.")
+parser.add_argument("--side_camera", action="store_true", default=False,
+                    help="Add the square-on side view to whatever else is enabled.")
 AppLauncher.add_app_launcher_args(parser)
 # suppress verbose Kit/USD logs by default
 parser.set_defaults(kit_args="--/log/level=error --/log/fileLogLevel=error --/log/outputStreamLevel=error")
@@ -96,7 +104,18 @@ COPILOT_NAME_MAP = {
 
 
 def _apply_task_overrides(env_cfg):
-    """Apply --target_color / --layout_seed to the task cfg (RandomBlock only)."""
+    """Apply --target_color / --layout_seed / camera selection to the env cfg."""
+    if args_cli.two_cam:
+        env_cfg.use_wrist_camera = True
+        env_cfg.use_upper_right_camera = True
+        env_cfg.use_front_camera = False
+        print("[INFO] two-camera setup: wrist + side, front camera OFF")
+    else:
+        if args_cli.wrist_camera:
+            env_cfg.use_wrist_camera = True
+        if args_cli.side_camera:
+            env_cfg.use_upper_right_camera = True
+
     task_cfg = env_cfg.task
     if args_cli.target_color is not None:
         colors = getattr(task_cfg, "target_colors", None)
@@ -188,6 +207,19 @@ def _make_rollout_dir():
 
     os.makedirs(rollout_path, exist_ok=True)
     return rollout_path
+
+
+# Each enabled camera writes to its own subdir. camera_0 stays the front view so
+# existing rollouts, convert_demos defaults and the 650 recorded episodes keep working;
+# the optional views get their own directories rather than renumbering anything.
+CAMERA_DIRS = {"front_rgb": "camera_0", "wrist_rgb": "camera_wrist",
+               "upper_right_rgb": "camera_side"}
+
+
+def _enabled_camera_views(env_unwrapped):
+    """[(attr, subdir)] for every camera this env is actually rendering."""
+    return [(a, d) for a, d in CAMERA_DIRS.items()
+            if getattr(env_unwrapped, a, None) is not None]
 
 
 def _save_rollout_meta(rollout_path, ep_stats):
@@ -642,7 +674,9 @@ def main():
                 robot_buffers = [[] for _ in range(num_envs)]
                 for env_id in range(num_envs):
                     if store_rgb:
-                        os.makedirs(os.path.join(rollout_path, f"episode_{env_id:04d}", "camera_0", "rgb"), exist_ok=True)
+                        for _a, _sub in _enabled_camera_views(env_unwrapped):
+                            os.makedirs(os.path.join(rollout_path, f"episode_{env_id:04d}",
+                                                     _sub, "rgb"), exist_ok=True)
                     os.makedirs(os.path.join(rollout_path, f"episode_{env_id:04d}", "robot"), exist_ok=True)
 
                 obs, _ = env.reset()
@@ -704,12 +738,12 @@ def main():
                             })
 
                             if store_rgb:
-                                rgb_dir = os.path.join(
-                                    rollout_path, f"episode_{env_id:04d}", "camera_0", "rgb"
-                                )
-                                img = img_tensor[env_id].cpu().numpy()
-                                img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-                                cv2.imwrite(os.path.join(rgb_dir, f"{t:06d}.jpg"), img_bgr)
+                                for _a, _sub in _enabled_camera_views(env_unwrapped):
+                                    rgb_dir = os.path.join(
+                                        rollout_path, f"episode_{env_id:04d}", _sub, "rgb")
+                                    img = getattr(env_unwrapped, _a)[env_id].cpu().numpy()
+                                    cv2.imwrite(os.path.join(rgb_dir, f"{t:06d}.jpg"),
+                                                cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
 
                             if done:
                                 ep_succeeded = bool(env_unwrapped.ep_succeeded[env_id].item())

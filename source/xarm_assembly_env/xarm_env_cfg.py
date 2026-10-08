@@ -339,7 +339,12 @@ class XArmEnvCfg(DirectRLEnvCfg):
         spawn=camera.pinhole_cfg,
     )
 
-    # Optional upper-right third-person camera. OFF by default; `front_camera` above is
+    # The calibrated front camera is what every existing dataset and checkpoint uses.
+    # Set False for a two-camera setup (wrist + side) so its 848x480 render is not paid
+    # for: it is the most expensive view and nothing downstream needs it there.
+    use_front_camera: bool = True
+
+    # Optional second third-person camera. OFF by default; `front_camera` above is
     # the one every existing dataset and checkpoint was recorded with, and it stays
     # exactly as it is so that data remains valid.
     use_upper_right_camera: bool = False
