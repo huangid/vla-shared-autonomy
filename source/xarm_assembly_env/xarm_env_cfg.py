@@ -111,6 +111,33 @@ class CameraCfg:
     t: list = [0.7263, -0.0323, 0.2216]
 
 @configclass
+class UpperRightCameraCfg:
+    """Third-person camera high and to the robot's right, looking down at the workspace.
+
+    The existing `CameraCfg` sits low (22 cm) and almost level (33 deg down), 73 cm in
+    front — a shallow view in which the arm frequently occludes the block it is
+    grasping. This pose trades the calibrated-to-hardware intrinsics of that camera for
+    a steeper, less occluded angle: blocks separate better in image space and depth
+    along the table maps more directly to image position.
+
+    Starting point only — verify with `--dump_upper_right` and adjust. The optical axis
+    should land near the centre of the block spawn area (x ~0.37, y ~0.0).
+    """
+    H: int = 360
+    W: int = 480
+    pinhole_cfg = sim_utils.PinholeCameraCfg(
+        focal_length=18.0,
+        focus_distance=0.8,
+        horizontal_aperture=20.955,
+        clipping_range=(0.05, 4.0),
+    )
+    # 50 cm forward, 45 cm to the robot's right (+y), 60 cm up, pitched ~45 deg down
+    # and yawed to face the workspace centre.
+    t: list = [0.50, 0.45, 0.60]
+    q: list = [0.6408, 0.2962, 0.2962, 0.6408]   # wxyz
+
+
+@configclass
 class WristCameraCfg:
     """Gripper-mounted camera, parented to link7.
 
@@ -301,6 +328,21 @@ class XArmEnvCfg(DirectRLEnvCfg):
         width=camera.W,
         data_types=["rgb"],
         spawn=camera.pinhole_cfg,
+    )
+
+    # Optional upper-right third-person camera. OFF by default; `front_camera` above is
+    # the one every existing dataset and checkpoint was recorded with, and it stays
+    # exactly as it is so that data remains valid.
+    use_upper_right_camera: bool = False
+    upper_right_camera: UpperRightCameraCfg = UpperRightCameraCfg()
+    upper_right_camera_cfg = TiledCameraCfg(
+        prim_path="/World/envs/env_.*/upper_right_camera",
+        offset=TiledCameraCfg.OffsetCfg(pos=upper_right_camera.t,
+                                        rot=upper_right_camera.q, convention="ros"),
+        height=upper_right_camera.H,
+        width=upper_right_camera.W,
+        data_types=["rgb"],
+        spawn=upper_right_camera.pinhole_cfg,
     )
 
     # Optional wrist camera, parented to link7 so it travels with the gripper.

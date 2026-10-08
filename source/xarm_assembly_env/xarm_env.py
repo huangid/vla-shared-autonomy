@@ -98,6 +98,9 @@ class XArmEnv(DirectRLEnv):
             if getattr(self.cfg, "use_wrist_camera", False):
                 self.wrist_camera = TiledCamera(self.cfg.wrist_camera_cfg)
                 self.scene.sensors["wrist_camera"] = self.wrist_camera
+            if getattr(self.cfg, "use_upper_right_camera", False):
+                self.upper_right_camera = TiledCamera(self.cfg.upper_right_camera_cfg)
+                self.scene.sensors["upper_right_camera"] = self.upper_right_camera
 
         self.scene.clone_environments(copy_from_source=False)
         if self.device == "cpu":
@@ -522,6 +525,8 @@ class XArmEnv(DirectRLEnv):
             self.front_rgb = self.front_camera.data.output["rgb"]
             if getattr(self, "wrist_camera", None) is not None:
                 self.wrist_rgb = self.wrist_camera.data.output["rgb"]
+            if getattr(self, "upper_right_camera", None) is not None:
+                self.upper_right_rgb = self.upper_right_camera.data.output["rgb"]
 
         self.joint_pos = self._robot.data.joint_pos.clone()
         self.joint_vel = self._robot.data.joint_vel.clone()
@@ -885,6 +890,8 @@ class XArmEnv(DirectRLEnv):
             self.front_camera.reset(env_ids=env_ids)
             if getattr(self, "wrist_camera", None) is not None:
                 self.wrist_camera.reset(env_ids=env_ids)
+            if getattr(self, "upper_right_camera", None) is not None:
+                self.upper_right_camera.reset(env_ids=env_ids)
 
         self._reset_dmr_params(env_ids)
         translation_noise, _, fixed_height_noise, yaw_delta_quat, identity_quat = (

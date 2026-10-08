@@ -61,6 +61,11 @@ parser.add_argument("--wrist_camera", action="store_true", default=False,
                          "--dump_only it is the way to check the mount pose before collecting.")
 parser.add_argument("--dump_wrist", type=str, default=None,
                     help="With --dump_only: also write the wrist view here (implies --wrist_camera).")
+parser.add_argument("--upper_right_camera", action="store_true", default=False,
+                    help="Enable the upper-right third-person camera (steeper, less occluded "
+                         "than the calibrated front camera).")
+parser.add_argument("--dump_upper_right", type=str, default=None,
+                    help="With --dump_only: also write the upper-right view here.")
 parser.add_argument("--dump_frame", type=str, default=None,
                     help="Save the first sim camera frame to this path (PNG) for visual comparison "
                          "against a training frame.")
@@ -166,6 +171,8 @@ def run(env_cfg, agent_cfg):
     env_cfg.num_rerenders_on_reset = 2
     if args_cli.wrist_camera or args_cli.dump_wrist:
         env_cfg.use_wrist_camera = True
+    if args_cli.upper_right_camera or args_cli.dump_upper_right:
+        env_cfg.use_upper_right_camera = True
     env_cfg.pilot_model = "knn"      # base action is unused; kNN just needs its local demo file
     env_cfg.pilot_type = "none"
     if args_cli.no_rand:
@@ -186,14 +193,17 @@ def run(env_cfg, agent_cfg):
         refresh_camera(env_u)
         _Image.fromarray(current_rgb(env_u).cpu().numpy().astype("uint8")).save(out)
         print(f"[INFO] wrote {out}")
-        if args_cli.dump_wrist:
-            cam = getattr(env_u, "wrist_camera", None)
+        for flag, attr, label in ((args_cli.dump_wrist, "wrist_camera", "wrist"),
+                                  (args_cli.dump_upper_right, "upper_right_camera", "upper-right")):
+            if not flag:
+                continue
+            cam = getattr(env_u, attr, None)
             if cam is None:
-                print("[WARN] wrist camera not initialised — is use_wrist_camera set?")
-            else:
-                w = cam.data.output["rgb"][0].cpu().numpy().astype("uint8")
-                _Image.fromarray(w).save(args_cli.dump_wrist)
-                print(f"[INFO] wrote wrist view to {args_cli.dump_wrist}  (shape {w.shape})")
+                print(f"[WARN] {label} camera not initialised — is its use_* flag set?")
+                continue
+            img = cam.data.output["rgb"][0].cpu().numpy().astype("uint8")
+            _Image.fromarray(img).save(flag)
+            print(f"[INFO] wrote {label} view to {flag}  (shape {img.shape})")
         print(f"[INFO] instruction was: {env_u.instructions[0]}")
         env.close()
         return
