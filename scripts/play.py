@@ -372,7 +372,11 @@ def _run_loop_recording(env_unwrapped, step_fn, on_done_fn, rollout_path):
             base_act_np = env_unwrapped.base_actions.detach().cpu().numpy()
             env_act_np = env_unwrapped.env_actions.detach().cpu().numpy()
             qpos_np = env_unwrapped.qpos_targets.detach().cpu().numpy()
-            img_np_all = env_unwrapped.front_rgb.cpu().numpy() if store_rgb else None
+            # This path (copilot/kNN recording) is single-view by construction; it is
+            # only reachable with the front camera on.
+            img_np_all = (env_unwrapped.front_rgb.cpu().numpy()
+                          if store_rgb and getattr(env_unwrapped, "front_camera", None) is not None
+                          else None)
 
             for env_id in range(num_envs):
                 if episode_done[env_id]:
@@ -703,8 +707,6 @@ def main():
                         base_act_np = env_unwrapped.base_actions.detach().cpu().numpy()
                         env_act_np = env_unwrapped.env_actions.detach().cpu().numpy()
                         qpos_np = env_unwrapped.qpos_targets.detach().cpu().numpy()
-                        if store_rgb:
-                            img_tensor = env_unwrapped.front_rgb
 
                         for env_id in range(num_envs):
                             if episode_done[env_id]:
