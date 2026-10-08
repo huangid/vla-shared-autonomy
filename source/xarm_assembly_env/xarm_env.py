@@ -92,6 +92,12 @@ class XArmEnv(DirectRLEnv):
         if self.cfg.vis.store_rgb:
             self.front_camera = TiledCamera(self.cfg.front_camera_cfg)
             self.scene.sensors["front_camera"] = self.front_camera
+            # Wrist view, parented to link7 (see WristCameraCfg). Off unless asked for:
+            # it changes the observation space, so datasets with and without it are not
+            # interchangeable.
+            if getattr(self.cfg, "use_wrist_camera", False):
+                self.wrist_camera = TiledCamera(self.cfg.wrist_camera_cfg)
+                self.scene.sensors["wrist_camera"] = self.wrist_camera
 
         self.scene.clone_environments(copy_from_source=False)
         if self.device == "cpu":
@@ -514,6 +520,8 @@ class XArmEnv(DirectRLEnv):
 
         if self.cfg.vis.store_rgb:
             self.front_rgb = self.front_camera.data.output["rgb"]
+            if getattr(self, "wrist_camera", None) is not None:
+                self.wrist_rgb = self.wrist_camera.data.output["rgb"]
 
         self.joint_pos = self._robot.data.joint_pos.clone()
         self.joint_vel = self._robot.data.joint_vel.clone()
@@ -875,6 +883,8 @@ class XArmEnv(DirectRLEnv):
 
         if self.cfg.vis.store_rgb:
             self.front_camera.reset(env_ids=env_ids)
+            if getattr(self, "wrist_camera", None) is not None:
+                self.wrist_camera.reset(env_ids=env_ids)
 
         self._reset_dmr_params(env_ids)
         translation_noise, _, fixed_height_noise, yaw_delta_quat, identity_quat = (

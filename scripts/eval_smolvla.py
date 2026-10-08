@@ -55,6 +55,12 @@ parser.add_argument("--dump_only", action="store_true", default=False,
                          "immediately after reset, so an unsettled first render is also visible.")
 parser.add_argument("--settle_steps", type=int, default=5,
                     help="Hold-still steps before the settled dump frame is captured.")
+parser.add_argument("--wrist_camera", action="store_true", default=False,
+                    help="Enable the link7-mounted wrist camera (XArmEnvCfg.use_wrist_camera). "
+                         "Only meaningful for checkpoints trained with a wrist view; with "
+                         "--dump_only it is the way to check the mount pose before collecting.")
+parser.add_argument("--dump_wrist", type=str, default=None,
+                    help="With --dump_only: also write the wrist view here (implies --wrist_camera).")
 parser.add_argument("--dump_frame", type=str, default=None,
                     help="Save the first sim camera frame to this path (PNG) for visual comparison "
                          "against a training frame.")
@@ -158,6 +164,8 @@ def run(env_cfg, agent_cfg):
     # looks exactly like "reaches the same place regardless of the blocks or the prompt".
     # Recording is unaffected (its first frame is captured after a full env.step()).
     env_cfg.num_rerenders_on_reset = 2
+    if args_cli.wrist_camera or args_cli.dump_wrist:
+        env_cfg.use_wrist_camera = True
     env_cfg.pilot_model = "knn"      # base action is unused; kNN just needs its local demo file
     env_cfg.pilot_type = "none"
     if args_cli.no_rand:
@@ -178,6 +186,14 @@ def run(env_cfg, agent_cfg):
         refresh_camera(env_u)
         _Image.fromarray(current_rgb(env_u).cpu().numpy().astype("uint8")).save(out)
         print(f"[INFO] wrote {out}")
+        if args_cli.dump_wrist:
+            cam = getattr(env_u, "wrist_camera", None)
+            if cam is None:
+                print("[WARN] wrist camera not initialised — is use_wrist_camera set?")
+            else:
+                w = cam.data.output["rgb"][0].cpu().numpy().astype("uint8")
+                _Image.fromarray(w).save(args_cli.dump_wrist)
+                print(f"[INFO] wrote wrist view to {args_cli.dump_wrist}  (shape {w.shape})")
         print(f"[INFO] instruction was: {env_u.instructions[0]}")
         env.close()
         return

@@ -111,6 +111,33 @@ class CameraCfg:
     t: list = [0.7263, -0.0323, 0.2216]
 
 @configclass
+class WristCameraCfg:
+    """Gripper-mounted camera, parented to link7.
+
+    Deliberately lower resolution than the front camera: a wrist view is close to the
+    object so fine detail costs little, while every extra pixel multiplies dataset size
+    and video-decode time (already the training bottleneck).
+
+    The offset is from link7's frame, ROS convention (+Z forward along the optical
+    axis). `pos` places it behind and above the fingers, `q` tilts it to look down the
+    gripper. These are a starting point — verify with
+    `eval_smolvla.py --dump_only --dump_wrist /tmp/wrist.png` and adjust until the
+    fingertips sit in the lower third of the frame with the grasp target centred.
+    """
+    H: int = 240
+    W: int = 320
+    pinhole_cfg = sim_utils.PinholeCameraCfg(
+        focal_length=12.0,          # ~55 deg horizontal FOV at this sensor size
+        focus_distance=0.15,        # fingers are ~10-20 cm away
+        horizontal_aperture=20.955,
+        clipping_range=(0.01, 2.0),
+    )
+    # link7-relative pose: 6 cm back along the tool axis, 4 cm up, pitched 35 deg down.
+    t: list = [0.0, -0.04, -0.06]
+    q: list = [0.9063, 0.4226, 0.0, 0.0]     # wxyz, 50 deg about x
+
+
+@configclass
 class VisualizationCfg:
     frame_marker_cfg = VisualizationMarkersCfg(
         prim_path="/Visuals/myMarkers",
@@ -274,6 +301,21 @@ class XArmEnvCfg(DirectRLEnvCfg):
         width=camera.W,
         data_types=["rgb"],
         spawn=camera.pinhole_cfg,
+    )
+
+    # Optional wrist camera, parented to link7 so it travels with the gripper.
+    # OFF by default: turning it on changes the observation space, so datasets recorded
+    # with and without it are not interchangeable.
+    use_wrist_camera: bool = False
+    wrist_camera: WristCameraCfg = WristCameraCfg()
+    wrist_camera_cfg = TiledCameraCfg(
+        prim_path="/World/envs/env_.*/robot/link7/wrist_camera",
+        offset=TiledCameraCfg.OffsetCfg(pos=wrist_camera.t, rot=wrist_camera.q,
+                                        convention="ros"),
+        height=wrist_camera.H,
+        width=wrist_camera.W,
+        data_types=["rgb"],
+        spawn=wrist_camera.pinhole_cfg,
     )
 
     vis: VisualizationCfg = VisualizationCfg()
