@@ -395,10 +395,17 @@ class RandomBlock(ThreeBlocks):
     # so no two blocks are within `block_min_separation` and no block lands within
     # `bin_clearance` of the bin centre. Kept close to the arm base for comfortable
     # SpaceMouse teleop (blocks in front, bin just behind them).
-    block_x_range: tuple = (0.30, 0.44)
-    block_y_range: tuple = (-0.15, 0.15)
+    # NOTE (two-camera branch): this layout differs from main's. The bin has moved to
+    # the robot's right (-y) so it sits under the square-on side camera, and the block
+    # region has shifted to +y to keep clear of it. Data recorded here is NOT compatible
+    # with main's datasets or checkpoints — different scene AND different cameras.
+    block_x_range: tuple = (0.30, 0.46)
+    block_y_range: tuple = (-0.08, 0.22)
     block_min_separation: float = 0.06
-    bin_clearance: float = 0.11
+    # Blocks are rejected within this radius of the bin centre. The block region no
+    # longer overlaps the bin at all, so this is now a safety margin rather than the
+    # main mechanism.
+    bin_clearance: float = 0.12
     # When set, every reset draws the SAME block layout (the sampler runs off a
     # generator re-seeded with this value each call). Used to collect "same scene,
     # different instruction" demos: replay one layout across all three colours so
@@ -413,7 +420,11 @@ class RandomBlock(ThreeBlocks):
 
     # Fixed bin pose, pinned every reset. The bin geometry (kinematic, immovable)
     # is inherited from ThreeBlocks.fixed_asset.
-    bin_pos: tuple = (0.54, 0.0, 0.0025)
+    # To the robot's right (-y, since the base faces +x) and under the side camera,
+    # which sits at (0.37, -0.65, 0.45) looking along +y. Reach radius 0.49 m, close to
+    # the 0.54 m of the previous straight-ahead position, so the arm should cover it —
+    # but verify by driving one episode before collecting.
+    bin_pos: tuple = (0.37, -0.32, 0.0025)
 
     # Starting fingertip pose: pulled in over the block region and lifted well
     # clear of the blocks so the arm starts fairly upright, not over-extended.
