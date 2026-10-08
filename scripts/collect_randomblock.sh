@@ -16,15 +16,28 @@
 # interrupted half-way, and the exact command to resume is printed on exit.
 set -u
 
-START=${1:?usage: $0 START END [FIRST_COLOR]}
-END=${2:?usage: $0 START END [FIRST_COLOR]}
+TWO_CAM=0
+if [ "${1:-}" = "--two_cam" ]; then TWO_CAM=1; shift; fi
+
+START=${1:?usage: $0 [--two_cam] START END [FIRST_COLOR]}
+END=${2:?usage: $0 [--two_cam] START END [FIRST_COLOR]}
 FIRST_COLOR=${3:-red}
 COLORS=(red green blue)
 
 cd "$(dirname "$0")/.."
 
 ROLLOUT=logs/rollouts/eval_RandomBlock_with_SpaceMousePilot
-OUTPUT=logs/data/randomblock_demos.npy
+# Two-camera demos go to their own dataset: the observation space differs, so mixing
+# them with the single-camera set would produce a dataset that cannot be trained on.
+if [ "$TWO_CAM" = 1 ]; then
+    OUTPUT=logs/data/twocam_demos.npy
+    PLAY_EXTRA=(--two_cam)
+    CONVERT_EXTRA=(--views "wrist:camera_wrist/rgb,side:camera_side/rgb")
+else
+    OUTPUT=logs/data/randomblock_demos.npy
+    PLAY_EXTRA=()
+    CONVERT_EXTRA=()
+fi
 META=$OUTPUT.tasks.json
 
 case "$FIRST_COLOR" in red|green|blue) ;; *) echo "FIRST_COLOR must be red, green or blue"; exit 2 ;; esac
@@ -72,6 +85,7 @@ if [ -f "$OUTPUT" ]; then
     mkdir -p "$backup" && cp "$OUTPUT" "$META" "$backup"/ && echo "Backed up dataset to $backup/"
 fi
 echo "Starting at: $(summary)"
+[ "$TWO_CAM" = 1 ] && echo "Two-camera mode: wrist + side -> $OUTPUT"
 echo "Layouts $START..$END, first colour $FIRST_COLOR"
 
 # ---- collection loop --------------------------------------------------------------
@@ -92,13 +106,15 @@ for L in $(seq "$START" "$END"); do
             before=$(count)
 
             python scripts/play.py --task RandomBlock --pilot SpaceMousePilot \
-                --num_envs 1 --record --yes --layout_seed "$L" --target_color "$C"
+                --num_envs 1 --record --yes --layout_seed "$L" --target_color "$C" \
+                "${PLAY_EXTRA[@]}"
 
             # Convert even after a Ctrl-C: it keeps only successful episodes, so this
             # can only save a finished demo, never add a broken one.
             if [ -d "$ROLLOUT" ]; then
                 run_protected python scripts/convert_demos.py \
-                    --rollout_dir "$ROLLOUT" --output "$OUTPUT" --append
+                    --rollout_dir "$ROLLOUT" --output "$OUTPUT" --append \
+                    "${CONVERT_EXTRA[@]}"
             fi
 
             after=$(count)
