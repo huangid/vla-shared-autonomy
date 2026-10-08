@@ -1001,6 +1001,96 @@ python scripts/eval_smolvla.py \
 trains the original state-based residual-RL copilot. Unrelated to the SmolVLA
 study — kept only for the residual-copilot framework.
 
+## Two-Camera Variant (`wrist-camera` branch only)
+
+A redesign of the RandomBlock scene around **two cameras** — one on the gripper, one
+square-on from the side — replacing the single calibrated front camera. It exists to
+attack the failure mode the single-camera study could not fix: every v4/v5 model
+reached the right block and then missed the grasp (see
+[docs/RESULTS.md](docs/RESULTS.md)).
+
+> **Data and checkpoints do not cross between this branch and `main`.** The
+> observation space and the scene both differ. A two-camera checkpoint cannot run in a
+> one-camera env, and the 650 single-camera recordings cannot gain a second view
+> retroactively — only rendered frames were saved, not simulator state.
+
+### What changed
+
+| | `main` | here |
+|---|---|---|
+| Cameras | front, 848x480, 33 deg down, calibrated to the real D435 | **wrist** 320x240 on the gripper front + **side** 480x360, square-on, 44 deg down |
+| Bin | (0.54, 0) straight ahead, 0.54 m reach | **(0.37, -0.18)**, the robot's right, 0.41 m reach |
+| Block region | x 0.30-0.44, y -0.15..0.15 (14 x 30 cm) | **x 0.29-0.45, y -0.06..0.10** (16 x 16 cm, square) |
+| Spawn rejection | bin 0.11 m | bin 0.12 m + **start pose 0.05 m** |
+
+The bin's x matches the block region's centre x (0.37), so bin and blocks lie on one
+line — the line the side camera looks along. The start-pose rejection stops an episode
+beginning with a block under the fingers.
+
+### Check the views before collecting
+
+```bash
+python scripts/eval_smolvla.py --dump_only \
+  --dump_wrist logs/views/wrist.png --dump_upper_right logs/views/side.png
+xdg-open logs/views/wrist.png
+```
+
+`--ur_pos x,y,z` / `--ur_aim x,y,z` re-aim the side camera without editing config; the
+rotation is computed as a level-horizon look-at. Keep the camera's x equal to the aim's
+x and the view stays square-on (table edges parallel to the image sides) — that is the
+whole reason for the current pose.
+
+### Workflow
+
+```bash
+# 1. collect (one episode per launch, as on main)
+python scripts/play.py --task RandomBlock --pilot SpaceMousePilot \
+  --num_envs 1 --record --yes --two_cam
+
+# 2. convert, carrying BOTH views
+python scripts/convert_demos.py \
+  --rollout_dir logs/rollouts/eval_RandomBlock_with_SpaceMousePilot \
+  --output logs/data/twocam_demos.npy --append \
+  --views "wrist:camera_wrist/rgb,side:camera_side/rgb"
+
+# 3. dataset with one image key per view
+python scripts/npy_to_lerobot.py --input logs/data/twocam_demos.npy \
+  --repo_id local/twocam --root logs/lerobot/twocam \
+  --images --image_names wrist,side --overwrite
+
+# 4. train — SmolVLA accepts three cameras; map the two onto camera1/camera2
+lerobot-train \
+  --policy.path=lerobot/smolvla_base --policy.push_to_hub=false \
+  --dataset.repo_id=local/twocam --dataset.root=logs/lerobot/twocam \
+  --dataset.video_backend=pyav \
+  --rename_map='{"observation.images.wrist": "observation.images.camera1", "observation.images.side": "observation.images.camera2"}' \
+  --batch_size=64 --steps=30000 --save_freq=5000 --num_workers=12 \
+  --output_dir=outputs/train/twocam_v1 --job_name=twocam_v1 --policy.device=cuda
+
+# 5. evaluate — --two_cam makes the env render what the checkpoint expects
+python scripts/eval_smolvla.py \
+  --checkpoint outputs/train/twocam_v1/checkpoints/025000/pretrained_model \
+  --num_episodes 200 --seed 123 --two_cam \
+  --n_action_steps 5 --max_steps 150 --debug_grounding --headless
+
+# shared autonomy, when a base policy exists
+python scripts/shared_autonomy.py --two_cam \
+  --checkpoint outputs/train/twocam_v1/checkpoints/025000/pretrained_model \
+  --num_episodes 10 --alpha 0.8 --rollout_dir logs/rollouts/twocam_sa_s1
+```
+
+- **Record one episode first** and confirm `camera_wrist/` and `camera_side/` both fill
+  with matching frame counts and no `camera_0/`. The Isaac-side recording is the part
+  that cannot be unit-tested, and a silent failure there costs a whole collection.
+- **`--views` and `--image_names` are what make it two-camera.** Omit them and the
+  tooling behaves exactly as on `main` (verified against an existing single-view
+  rollout), which is useful but will quietly give you a one-camera dataset.
+- Each view is probed for its own resolution, so the smaller wrist frames are fine.
+- Expect roughly 2x the dataset size and decode time of a single-view set; video decode
+  is already the training bottleneck.
+- The square 16 x 16 cm region is 40% smaller in area than main's 14 x 30 cm, so success
+  rates are **not** directly comparable to the [results](docs/RESULTS.md) there.
+
 ## HuggingFace Collection
 
 All data, models, and assets are hosted as a [HuggingFace collection](https://huggingface.co/collections/shashuo0104/residual-copilot), auto-downloaded on first use.
