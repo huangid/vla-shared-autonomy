@@ -112,7 +112,7 @@ class CameraCfg:
 
 @configclass
 class UpperRightCameraCfg:
-    """Third-person camera high and to the robot's right, looking down at the workspace.
+    """Second third-person camera, square-on to the table from the robot's side.
 
     The existing `CameraCfg` sits low (22 cm) and almost level (33 deg down), 73 cm in
     front — a shallow view in which the arm frequently occludes the block it is
@@ -131,14 +131,14 @@ class UpperRightCameraCfg:
         horizontal_aperture=20.955,
         clipping_range=(0.05, 4.0),
     )
-    # 50 cm forward, 45 cm to the robot's right, 60 cm up, aimed at the workspace just
-    # above the table (0.37, 0.0, 0.05) so the arm and all three blocks sit in frame.
-    # NOTE the sign: the base faces +x, so the robot's RIGHT is -y. The rotation is a
-    # look-at computed with the construction that reproduces the calibrated front
-    # camera's optical axis to three decimals. Optical axis [-0.18, 0.62, -0.76],
-    # 50 deg below horizontal versus the front camera's 33 deg.
-    t: list = [0.50, -0.45, 0.60]
-    q: list = [-0.342, 0.9292, 0.1315, -0.0484]   # wxyz
+    # SQUARE-ON side view: 65 cm to the side at the workspace's own x (0.37), 45 cm up,
+    # looking straight along +y at the blocks. Being on an axis is what matters — the
+    # optical axis has no x component, so the table edges stay parallel to the image
+    # sides instead of converging, and roll is exactly zero. Diagonal placements were
+    # rejected for precisely that reason. Optical axis [0, 0.89, -0.45], 27 deg below
+    # horizontal, 73 cm from the target.
+    t: list = [0.37, -0.65, 0.45]
+    q: list = [-0.5231, 0.8523, 0.0, 0.0]   # wxyz
 
 
 @configclass
