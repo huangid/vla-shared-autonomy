@@ -128,14 +128,31 @@ def resolve_image_key(pilot):
     return keys[0] if len(keys) == 1 else keys
 
 
-def resolve_view_attrs(env_u, n_keys):
+def resolve_view_attrs(env_u, n_keys, keys=None):
     available = [a for a in VIEW_ATTR_ORDER
                  if getattr(env_u, a.replace("_rgb", "_camera"), None) is not None]
-    if len(available) < n_keys:
+    # Require an EXACT match rather than taking the first n. With all three cameras
+    # enabled, "first n" would hand a two-camera checkpoint front+wrist when it was
+    # trained on wrist+side — same shapes, wrong scenes, no error.
+    if len(available) != n_keys:
         raise RuntimeError(
-            f"checkpoint expects {n_keys} camera(s); the env renders {len(available)} "
-            f"({available}). Enable the matching cameras or use a matching checkpoint.")
-    return available[:n_keys]
+            f"checkpoint expects {n_keys} camera(s) but the env renders {len(available)} "
+            f"({[a.replace('_rgb','') for a in available]}). Enable exactly the cameras it "
+            f"was trained with: --two_cam for wrist+side, or no camera flags for front only.")
+    chosen = available[:n_keys]
+    # A single-camera checkpoint with the front view disabled would silently be fed the
+    # wrist image as though it were the front one — same shape, different scene.
+    if n_keys == 1 and chosen[0] != "front_rgb":
+        raise RuntimeError(
+            f"checkpoint declares one camera but the front view is off, so it would be fed "
+            f"'{chosen[0]}' instead. Drop --two_cam for a single-camera checkpoint, or pass "
+            f"--image_key to state the mapping deliberately.")
+    if not getattr(resolve_view_attrs, "_logged", False):
+        pairs = ", ".join(f"{k} <- {a.replace('_rgb','')}"
+                          for k, a in zip(keys or [f"key{i}" for i in range(n_keys)], chosen))
+        print(f"[INFO] camera pairing: {pairs}")
+        resolve_view_attrs._logged = True
+    return chosen
 
 
 # Same subdir names play.py writes, so convert_demos --views works on both.
@@ -190,7 +207,7 @@ def build_frame(env_u, image_key):
     if len(keys) == 1 and getattr(env_u, "front_camera", None) is not None:
         frame[keys[0]] = current_rgb(env_u)
     else:
-        for key, attr in zip(keys, resolve_view_attrs(env_u, len(keys))):
+        for key, attr in zip(keys, resolve_view_attrs(env_u, len(keys), keys)):
             cam = getattr(env_u, attr.replace("_rgb", "_camera"))
             frame[key] = cam.data.output["rgb"][0]
     return frame

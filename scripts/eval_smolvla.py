@@ -136,16 +136,32 @@ def resolve_image_key(pilot):
 VIEW_ATTR_ORDER = ("front_rgb", "wrist_rgb", "upper_right_rgb")
 
 
-def resolve_view_attrs(env_u, n_keys):
+def resolve_view_attrs(env_u, n_keys, keys=None):
     """Env RGB attributes to feed, one per image key the checkpoint expects."""
-    available = [a for a in VIEW_ATTR_ORDER if getattr(env_u, a.replace("_rgb", "_camera"), None)]
-    if len(available) < n_keys:
+    available = [a for a in VIEW_ATTR_ORDER
+                 if getattr(env_u, a.replace("_rgb", "_camera"), None) is not None]
+    # Require an EXACT match rather than taking the first n. With all three cameras
+    # enabled, "first n" would hand a two-camera checkpoint front+wrist when it was
+    # trained on wrist+side — same shapes, wrong scenes, no error.
+    if len(available) != n_keys:
         raise RuntimeError(
             f"checkpoint expects {n_keys} camera(s) but the env renders {len(available)} "
-            f"({available}). Enable the matching cameras (--two_cam / --wrist_camera / "
-            f"--side_camera) or use a checkpoint trained with this camera set."
-        )
-    return available[:n_keys]
+            f"({[a.replace('_rgb','') for a in available]}). Enable exactly the cameras it "
+            f"was trained with: --two_cam for wrist+side, or no camera flags for front only.")
+    chosen = available[:n_keys]
+    # A single-camera checkpoint with the front view disabled would silently be fed the
+    # wrist image as though it were the front one — same shape, different scene.
+    if n_keys == 1 and chosen[0] != "front_rgb":
+        raise RuntimeError(
+            f"checkpoint declares one camera but the front view is off, so it would be fed "
+            f"'{chosen[0]}' instead. Drop --two_cam for a single-camera checkpoint, or pass "
+            f"--image_key to state the mapping deliberately.")
+    if not getattr(resolve_view_attrs, "_logged", False):
+        pairs = ", ".join(f"{k} <- {a.replace('_rgb','')}"
+                          for k, a in zip(keys or [f"key{i}" for i in range(n_keys)], chosen))
+        print(f"[INFO] camera pairing: {pairs}")
+        resolve_view_attrs._logged = True
+    return chosen
 
 
 def current_rgb(env_u):
@@ -193,7 +209,7 @@ def build_frame(env_u, image_key):
     if len(keys) == 1 and getattr(env_u, "front_camera", None) is not None:
         frame[keys[0]] = current_rgb(env_u)              # (H, W, 3) uint8, read live
     else:
-        for key, attr in zip(keys, resolve_view_attrs(env_u, len(keys))):
+        for key, attr in zip(keys, resolve_view_attrs(env_u, len(keys), keys)):
             cam = getattr(env_u, attr.replace("_rgb", "_camera"))
             frame[key] = cam.data.output["rgb"][0]       # read live, like current_rgb
     return frame
