@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Batch-collect RandomBlock SpaceMouse demos: each layout is recorded once per colour.
 #
-#   scripts/collect_randomblock.sh START END [FIRST_COLOR]
+#   scripts/collect_randomblock.sh [--two_cam] START END [FIRST_COLOR]
 #
-#   scripts/collect_randomblock.sh 1 50          # layouts 1..50 x red/green/blue = 150 demos
-#   scripts/collect_randomblock.sh 18 34         # one sitting of a split batch
-#   scripts/collect_randomblock.sh 12 50 blue    # resume: layout 12 starts at blue
+#   scripts/collect_randomblock.sh 1 50             # layouts 1..50 x red/green/blue = 150 demos
+#   scripts/collect_randomblock.sh --two_cam 1 84   # two-camera set -> logs/data/twocam_demos.npy
+#   scripts/collect_randomblock.sh 18 34            # one sitting of a split batch
+#   scripts/collect_randomblock.sh 12 50 blue       # resume: layout 12 starts at blue
 #
 # For every (layout, colour) it launches play.py --record, converts the recording,
 # and checks the dataset actually grew. A demo that was not saved (missed grasp /
@@ -68,7 +69,11 @@ stop=0
 trap 'stop=1; echo; echo ">>> stop requested - finishing the current step"' INT
 
 resume_hint() {
-    echo "Resume with:  scripts/collect_randomblock.sh $1 $END $2"
+    # Must carry --two_cam: without it a resumed run records single-camera episodes
+    # into a different dataset, silently and without error.
+    local flag=""
+    [ "$TWO_CAM" = 1 ] && flag="--two_cam "
+    echo "Resume with:  scripts/collect_randomblock.sh ${flag}$1 $END $2"
     echo "Dataset: $(summary)"
 }
 
