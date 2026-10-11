@@ -55,6 +55,10 @@ parser.add_argument("--dump_only", action="store_true", default=False,
                          "immediately after reset, so an unsettled first render is also visible.")
 parser.add_argument("--settle_steps", type=int, default=5,
                     help="Hold-still steps before the settled dump frame is captured.")
+parser.add_argument("--two_cam", action="store_true", default=False,
+                    help="Use the two-camera setup (wrist + square-on side) with the front "
+                         "camera off. Must match the camera set the checkpoint was trained "
+                         "with; a mismatch is rejected rather than silently mispaired.")
 parser.add_argument("--wrist_camera", action="store_true", default=False,
                     help="Enable the link7-mounted wrist camera (XArmEnvCfg.use_wrist_camera). "
                          "Only meaningful for checkpoints trained with a wrist view; with "
@@ -231,6 +235,11 @@ def run(env_cfg, agent_cfg):
     # looks exactly like "reaches the same place regardless of the blocks or the prompt".
     # Recording is unaffected (its first frame is captured after a full env.step()).
     env_cfg.num_rerenders_on_reset = 2
+    if args_cli.two_cam:
+        env_cfg.use_wrist_camera = True
+        env_cfg.use_upper_right_camera = True
+        env_cfg.use_front_camera = False
+        print("[INFO] two-camera setup: wrist + side, front camera OFF")
     if args_cli.wrist_camera or args_cli.dump_wrist:
         env_cfg.use_wrist_camera = True
     if args_cli.upper_right_camera or args_cli.dump_upper_right:
