@@ -514,7 +514,44 @@ With the control in place the secondary claims sharpen:
 3. **Finetuning on a demo subset is harmless.** Control vs base p = 0.47, which
    retrospectively validates the round 1-3 comparisons against the base.
 
-## 14. Next
+## 14. Two-camera round — analysis plan (written BEFORE the evaluation)
+
+Committed before any evaluation of the two-camera correction arms, so that a later
+decision to extend the experiment cannot be mistaken for choosing the sample size that
+gave a favourable answer.
+
+**Setting.** New scene and sensors on the `wrist-camera` branch: a gripper-mounted
+wrist camera plus a square-on side camera, no front camera; bin moved to the robot's
+right at (0.37, -0.18); square 16 x 16 cm block region. Base policy `twocam_v1/020000`,
+240 demos. **Not comparable to the single-camera study** — both the cameras and the
+scene differ.
+
+**Collected.** 100 shared-autonomy episodes at alpha = 0.8, 100/100 successful, 7,349
+steps of which 1,499 corrective (20%). Mixed with a seeded 50-demo ballast slice the
+two arms differ on 1,491 steps = 13.4% of training data, median label gap 11.5 cm —
+slightly stronger contrast than the single-camera round that resolved at p = 0.00018
+(11.7%, 10.9 cm).
+
+**This round is a PILOT, not the test.** 100 episodes was chosen to get feedback
+quickly, not from a power calculation. Its purpose is to confirm the pipeline and
+estimate the effect size.
+
+- If an arm wins decisively, that is a result worth reporting, with the caveat that the
+  sample size was not pre-specified.
+- **If the comparison is null, the pilot's p-value is NOT the answer.** The honest
+  response is to collect to a pre-specified N and report that analysis. Reporting a
+  null pilot as a finding, or extending and then presenting the combined data as a
+  single planned test, would both misstate what was done.
+
+**Secondary.** A control arm (`tc_ballast_only`: the same seeded 50 demos, same recipe,
+no corrections, step count matched for equal passes over those demos) is evaluated
+alongside, so "does it beat the base" becomes "does it beat finetuning without
+corrections".
+
+**Protocol.** 200 episodes, `--seed 123`, `--two_cam`, `--n_action_steps 5`, paired
+McNemar exact test — the same protocol as every earlier round, on the new scene.
+
+## 15. Next
 
 1. **Run the control arm** (section 13) to make the "beats base?" claims clean.
 2. **Update [OVERVIEW.md](OVERVIEW.md)** if the control changes any wording.
