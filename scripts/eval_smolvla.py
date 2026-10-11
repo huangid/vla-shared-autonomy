@@ -105,14 +105,23 @@ from residual_copilot.pilot_models.smolvla_pilot import SmolVLA_Pilot
 TASK_ID = f"XArm-{args_cli.task}-GuidedDiffusion"
 
 
-def resolve_image_keys(pilot):
-    """Every image key this checkpoint expects, sorted — one per camera."""
+def resolve_image_keys(pilot, n_cameras):
+    """Image keys to fill, one per camera the env renders.
+
+    `smolvla_base` declares three camera slots (camera1/2/3) no matter how many were
+    actually used in training — that is why finetuning needs --rename_map and why the
+    declared count cannot be trusted. Training maps the views in order (wrist ->
+    camera1, side -> camera2), so take that many keys in sorted order.
+    """
     if args_cli.image_key:
         return [k.strip() for k in args_cli.image_key.split(",")]
     keys = sorted(pilot.policy.config.image_features)
     if not keys:
         raise RuntimeError("checkpoint declares no image features")
-    return keys
+    if len(keys) < n_cameras:
+        raise RuntimeError(f"env renders {n_cameras} cameras but the checkpoint declares "
+                           f"only {len(keys)} image slots ({keys})")
+    return keys[:n_cameras]
 
 
 def resolve_image_key(pilot):
@@ -147,7 +156,7 @@ def resolve_view_attrs(env_u, n_keys, keys=None):
     # Require an EXACT match rather than taking the first n. With all three cameras
     # enabled, "first n" would hand a two-camera checkpoint front+wrist when it was
     # trained on wrist+side — same shapes, wrong scenes, no error.
-    if len(available) != n_keys:
+    if len(available) != n_keys:   # keys were chosen from this same count, so this is a guard
         raise RuntimeError(
             f"checkpoint expects {n_keys} camera(s) but the env renders {len(available)} "
             f"({[a.replace('_rgb','') for a in available]}). Enable exactly the cameras it "
@@ -330,14 +339,17 @@ def run(env_cfg, agent_cfg):
     print(f"[INFO] executing {pilot.policy.config.n_action_steps} of each "
           f"{pilot.policy.config.chunk_size}-step chunk before re-planning "
           f"({pilot.policy.config.n_action_steps / 15.0:.2f}s open-loop)")
-    image_key = resolve_image_keys(pilot)
+    n_cams = sum(getattr(env_u, a.replace("_rgb", "_camera"), None) is not None
+                 for a in VIEW_ATTR_ORDER)
+    image_key = resolve_image_keys(pilot, n_cams)
     image_key = image_key[0] if len(image_key) == 1 else image_key
     print(f"[INFO] feeding observations under image key(s): {image_key}")
 
     obs, _ = env.reset()
     pilot.reset()
-    if not hasattr(env_u, "front_camera"):
-        raise RuntimeError("env has no front_camera — not initialised (store_rgb / --enable_cameras).")
+    if not any(getattr(env_u, a.replace("_rgb", "_camera"), None) is not None
+               for a in VIEW_ATTR_ORDER):
+        raise RuntimeError("env has no cameras — not initialised (store_rgb / --enable_cameras).")
 
     results = []
     steps_in_ep = 0

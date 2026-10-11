@@ -117,12 +117,16 @@ TASK_ID = f"XArm-{args_cli.task}-GuidedDiffusion"
 VIEW_ATTR_ORDER = ("front_rgb", "wrist_rgb", "upper_right_rgb")
 
 
-def resolve_image_key(pilot):
-    """Image key(s) this checkpoint expects — a str for one camera, a list for several."""
+def resolve_image_key(pilot, n_cameras):
+    """Image key(s) to fill — a str for one camera, a list for several.
+
+    `smolvla_base` declares three camera slots whatever it was trained on, so the
+    count comes from the env; training maps views in order (wrist -> camera1).
+    """
     if args_cli.image_key:
         keys = [k.strip() for k in args_cli.image_key.split(",")]
     else:
-        keys = sorted(pilot.policy.config.image_features)
+        keys = sorted(pilot.policy.config.image_features)[:n_cameras]
     if not keys:
         raise RuntimeError("checkpoint declares no image features")
     return keys[0] if len(keys) == 1 else keys
@@ -349,7 +353,9 @@ def run(env_cfg, agent_cfg):
 
     robot = SmolVLA_Pilot(args_cli.checkpoint, device=args_cli.policy_device,
                           n_action_steps=args_cli.n_action_steps)
-    image_key = resolve_image_key(robot)
+    n_cams = sum(getattr(env_u, a.replace("_rgb", "_camera"), None) is not None
+                 for a in VIEW_ATTR_ORDER)
+    image_key = resolve_image_key(robot, n_cams)
     human = SpaceMousePilot(num_envs=1, device=str(env_u.device))
 
     rollout_path = None if args_cli.no_record else make_rollout_dir()
