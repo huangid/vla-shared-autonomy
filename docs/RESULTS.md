@@ -632,7 +632,67 @@ it is paired with states it never generated. That is the explanation that surviv
 - Each arm is a single training run (seed 1000); training-seed variance is not
   characterised, here or in the single-camera study.
 
-## 16. Next
+## 16. Residual on a frozen base — analysis plan (written BEFORE any simulator run)
+
+Sections 9-15 finetuned the base on corrections and never beat it. This tries the
+alternative: leave `twocam_v1/020000` frozen and learn only the adjustment the
+corrections produced, in the style of CR-DAgger. It is position-only residual learning
+from SpaceMouse blending, not CR-DAgger itself (no force sensing, no compliant
+kinesthetic interface, no force output).
+
+**Data.** The 100 two-camera correction episodes of section 15 (alpha = 0.8), all 7,349
+steps. Label per step: `a_exec[:3] - a_R[:3]`, which is exactly zero on the 5,850 steps
+without a correction. On the 1,499 corrective steps its norm has median 3.3 cm, p90
+4.4 cm, p99 5.1 cm. Orientation is left to the base (executed vs policy orientation
+differs by a median of 0.8 deg), and so is the gripper.
+
+**Model.** MLP 3 x 256 on [robot state 14 | base action 8 | base target relative to
+fingertip 3], optionally with frozen ImageNet ResNet-18 features of the wrist and side
+frames; corrective steps weighted 5x; lr 1e-4, dropout 0.3, weight decay 1e-3. Epoch
+count chosen on 20 held-out episodes, then retrained on all 100. `scripts/
+residual_extract.py`, `scripts/residual_train.py`, `source/pilot_models/
+residual_policy.py`.
+
+**What the offline analysis showed** (held-out episodes; no simulator involved):
+
+| Predictor | Error on held-out corrective steps | Direction cosine |
+|---|---|---|
+| Predict nothing | 3.26 cm | — |
+| One constant vector (the mean correction) | 2.74 cm | +0.49 |
+| Images + state + base action (`tc_residual_images`, 8 epochs) | 2.55 cm | +0.55 |
+| **State + base action only (`tc_residual_state`, 77 epochs)** | **2.39 cm** | **+0.61** |
+
+- The corrections are mostly one consistent nudge: 89% occur before the grasp with the
+  fingertip near the table (median z 2.9 cm), and their mean is (-0.6, -1.4, -1.3) cm —
+  down and toward -y. 80% have a negative z component.
+- Image features do not help at this data size; they make held-out error worse. The
+  state-only network is therefore the configuration selected, even though the original
+  design called for images.
+- Both networks output ~0.9 cm down near the table and ~0 above 8 cm; the 99th
+  percentile of their output is under 4 cm.
+
+**Evaluation (fixed now).** 200 episodes, `--seed 123 --two_cam --n_action_steps 5
+--max_steps 150 --debug_grounding`, the same episodes as section 15. Adjustment capped
+at 5 cm per step (the p99 of the labels). One run per configuration; nothing is tuned
+on simulator results.
+
+- **Sanity:** the residual path with a zero adjustment should reproduce the base's
+  142/200. If the simulator is not bitwise repeatable, the number of episodes that flip
+  is the run-to-run noise floor and is reported as such.
+- **Primary:** base + `tc_residual_state` vs the base (142/200), paired McNemar exact.
+- **Secondary:** base + `tc_residual_images` vs the base; each residual vs the control
+  (146/200); state vs images.
+
+**Expectation, stated in advance.** The learned adjustment is largely "go about 1 cm
+lower at the grasp". If the base's failures are mostly grasps closed too high, this
+should convert some of them; if they are lateral misalignments the residual cannot see,
+it will not, and it may break grasps that were already succeeding. Either outcome is
+reported.
+
+**Not done:** iterating (collecting new corrections with the residual running, then
+retraining).
+
+## 17. Next
 
 1. **Run the control arm** (section 13) to make the "beats base?" claims clean.
 2. **Update [OVERVIEW.md](OVERVIEW.md)** if the control changes any wording.

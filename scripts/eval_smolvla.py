@@ -55,6 +55,17 @@ parser.add_argument("--dump_only", action="store_true", default=False,
                          "immediately after reset, so an unsettled first render is also visible.")
 parser.add_argument("--settle_steps", type=int, default=5,
                     help="Hold-still steps before the settled dump frame is captured.")
+parser.add_argument("--residual", type=str, default=None,
+                    help="Residual correction policy (.pt from residual_train.py) added on top "
+                         "of the frozen base: each step its capped position adjustment is added "
+                         "to SmolVLA's action. Orientation and gripper stay with the base.")
+parser.add_argument("--residual_cap", type=float, default=0.05,
+                    help="Largest adjustment applied per step, metres. The training labels have "
+                         "a 99th percentile of 5.1 cm, so 0.05 passes what was learned and blocks "
+                         "extrapolation; 0.03 would clip 61%% of the corrective labels.")
+parser.add_argument("--residual_zero", action="store_true", default=False,
+                    help="Sanity check: run the full residual path but apply a zero adjustment. "
+                         "The result should match the base policy's own evaluation.")
 parser.add_argument("--two_cam", action="store_true", default=False,
                     help="Use the two-camera setup (wrist + square-on side) with the front "
                          "camera off. Must match the camera set the checkpoint was trained "
@@ -345,6 +356,22 @@ def run(env_cfg, agent_cfg):
     image_key = image_key[0] if len(image_key) == 1 else image_key
     print(f"[INFO] feeding observations under image key(s): {image_key}")
 
+    residual = None
+    if args_cli.residual:
+        from residual_copilot.pilot_models.residual_policy import ResidualPolicy
+        residual = ResidualPolicy(args_cli.residual, device=args_cli.policy_device,
+                                  cap=args_cli.residual_cap, zero=args_cli.residual_zero)
+        for v in residual.views:
+            cam = "wrist_camera" if v == "wrist" else "upper_right_camera"
+            if getattr(env_u, cam, None) is None:
+                raise SystemExit(f"--residual uses the {v} view but the env has no {cam}; "
+                                 f"pass --two_cam")
+        print(f"[INFO] residual: {args_cli.residual} | inputs: state + base action"
+              f"{' + ' + '/'.join(residual.views) + ' image features' if residual.views else ''}"
+              f" | cap {residual.cap * 100:.1f} cm{' | ZERO (sanity check)' if residual.zero else ''}")
+    res_norms = []          # size of the adjustment applied at each step, metres
+    res_sum = torch.zeros(3)
+
     obs, _ = env.reset()
     pilot.reset()
     if not any(getattr(env_u, a.replace("_rgb", "_camera"), None) is not None
@@ -393,6 +420,17 @@ def run(env_cfg, agent_cfg):
 
         with torch.inference_mode():
             action = pilot.act(build_frame(env_u, image_key)).to(env_u.device).view(1, -1)
+            if residual is not None:
+                # Same 14D state the shared-autonomy logs stored (policy obs slices
+                # 0:8 and 14:20), so training and run-time inputs are the same quantity.
+                obs_t = obs["policy"] if isinstance(obs, dict) else obs
+                res_state = torch.cat([obs_t[0, 0:8], obs_t[0, 14:20]])
+                wrist = env_u.wrist_camera.data.output["rgb"][0] if "wrist" in residual.views else None
+                side = env_u.upper_right_camera.data.output["rgb"][0] if "side" in residual.views else None
+                delta = residual.delta(wrist, side, res_state, action[0]).to(action.device)
+                action[0, 0:3] += delta
+                res_norms.append(float(torch.linalg.vector_norm(delta)))
+                res_sum += delta.detach().cpu()
             obs, _rew, terminated, truncated, _info = env.step(action)
 
         steps_in_ep += 1
@@ -441,7 +479,7 @@ def run(env_cfg, agent_cfg):
                 # it above, and reset() updates them in place — doing that outside
                 # raises "Inplace update to inference tensor outside InferenceMode".
                 with torch.inference_mode():
-                    env.reset()
+                    obs, _ = env.reset()      # keep `obs` current: the residual reads its state from it
             pilot.reset()
             steps_in_ep = 0
             lifted = False
@@ -452,6 +490,14 @@ def run(env_cfg, agent_cfg):
     n_succ = sum(r["success"] for r in results)
     print("\n" + "=" * 48)
     print(f"  SmolVLA @ {args_cli.checkpoint}")
+    if residual is not None:
+        import numpy as _np2
+        rn = _np2.array(res_norms) if res_norms else _np2.zeros(1)
+        print(f"  + residual {args_cli.residual}{'  [ZERO sanity check]' if residual.zero else ''}")
+        print(f"    adjustment applied: mean {rn.mean() * 100:.2f} cm, over 1 cm on "
+              f"{100.0 * (rn > 0.01).mean():.0f}% of steps, at the cap on "
+              f"{100.0 * (rn >= residual.cap - 1e-6).mean():.0f}%; mean vector (cm) "
+              f"{[round(float(v) * 100 / max(len(res_norms), 1), 2) for v in res_sum]}")
     print(f"  overall success: {n_succ}/{n} = {100.0 * n_succ / max(n, 1):.1f}%")
     by_color = defaultdict(lambda: [0, 0])
     for r in results:
