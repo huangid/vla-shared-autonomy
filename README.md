@@ -1091,6 +1091,53 @@ python scripts/shared_autonomy.py --two_cam \
 - The square 16 x 16 cm region is 40% smaller in area than main's 14 x 30 cm, so success
   rates are **not** directly comparable to the [results](docs/RESULTS.md) there.
 
+### Residual on a frozen base (CR-DAgger-style)
+
+Finetuning the base on corrections never improved it ([docs/RESULTS.md](docs/RESULTS.md)
+sections 9-15). This alternative leaves the base frozen and trains a small network to
+predict only the position adjustment the corrections produced, then adds that
+adjustment to the base action at run time. Position-only, from SpaceMouse blending: no
+force sensing or force output, so it is inspired by CR-DAgger rather than an
+implementation of it.
+
+```bash
+# 1. dataset: label = a_exec - a_R per step (zero where there was no correction),
+#    plus frozen ResNet-18 features of both camera frames, computed once
+python scripts/residual_extract.py \
+  --rollouts 'logs/rollouts/tc_sa_s*' --output logs/data/tc_residual.npz
+
+# 2. train (seconds). --views none = robot state + base action only
+python scripts/residual_train.py --data logs/data/tc_residual.npz \
+  --views none --output outputs/residual/tc_residual_state.pt
+python scripts/residual_train.py --data logs/data/tc_residual.npz \
+  --views both --output outputs/residual/tc_residual_images.pt
+
+# 3. evaluate on the same 200 episodes as the base
+CK=outputs/train/twocam_v1/checkpoints/020000/pretrained_model
+COMMON="--num_episodes 200 --seed 123 --two_cam --debug_grounding --max_steps 150 --n_action_steps 5 --headless"
+python scripts/eval_smolvla.py --checkpoint $CK $COMMON \
+  --residual outputs/residual/tc_residual_state.pt 2>&1 | tee /tmp/eval200_tc_residual_state.log
+python scripts/eval_smolvla.py --checkpoint $CK $COMMON \
+  --residual outputs/residual/tc_residual_state.pt --residual_zero 2>&1 | tee /tmp/eval200_tc_residual_zero.log
+python scripts/eval_smolvla.py --checkpoint $CK $COMMON \
+  --residual outputs/residual/tc_residual_images.pt 2>&1 | tee /tmp/eval200_tc_residual_images.log
+```
+
+- **Read the held-out line `residual_train.py` prints.** With 80% of labels exactly
+  zero, "output nothing" is the trivial solution; the number that matters is the error
+  on held-out *corrective* steps against the error of predicting nothing. Episodes, not
+  steps, are held out — neighbouring steps of one episode are near-duplicates.
+- **`--residual_zero`** runs the whole residual path but applies no adjustment. It
+  should match the base's own result, which checks the added machinery changed nothing
+  else; any episodes that flip are the simulator's run-to-run noise.
+- **`--residual_cap`** (default 0.05 m) bounds the adjustment per step. The labels'
+  99th percentile is 5.1 cm; a 3 cm cap would clip 61% of the corrective labels.
+- **Image features did not help** at 100 episodes — the state-only network predicts
+  held-out corrections better (2.39 cm vs 2.55 cm error, against 3.26 cm for predicting
+  nothing). Most of what the corrections contain is one consistent nudge: about 1 cm
+  down and toward -y just before the grasp.
+- Orientation and gripper are left to the base.
+
 ## HuggingFace Collection
 
 All data, models, and assets are hosted as a [HuggingFace collection](https://huggingface.co/collections/shashuo0104/residual-copilot), auto-downloaded on first use.
