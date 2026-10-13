@@ -551,7 +551,88 @@ corrections".
 **Protocol.** 200 episodes, `--seed 123`, `--two_cam`, `--n_action_steps 5`, paired
 McNemar exact test — the same protocol as every earlier round, on the new scene.
 
-## 15. Next
+## 15. Two-camera round — result: the single-camera finding replicates
+
+Run as declared in section 14. Four models, 200 identical episodes (`--seed 123`,
+`--two_cam`), paired McNemar exact tests.
+
+**Setup.** Wrist camera (320x240, on the gripper's front face) + square-on side camera
+(480x360, 44 deg down); no front camera. Bin at (0.37, -0.18), blocks in a square
+16 x 16 cm region (x 0.29-0.45, y -0.06..0.10), spawn rejection 0.12 m from the bin
+and 0.05 m from the gripper's start pose. Base: 240 demos (80 layouts x 3 colours),
+18,463 frames, 20,000 steps (69 epochs) -> `twocam_v1/020000`. Corrections: 100
+episodes at alpha = 0.8 against that checkpoint. Arms: corrections + the same seeded
+50-demo ballast, 4,000 steps, lr 2.5e-5, seed 1000. Control: the 50 demos alone, 1,400
+steps (23.3 epochs over them, matching the arms).
+
+| Model | Success | Within 1.5 cm | Grounding | Distractor binned |
+|---|---|---|---|---|
+| `tc_ballast_only` (control) | 146/200 = 73.0% | 160 | 77% | 12 |
+| `twocam_v1` (base, 240 demos) | 142/200 = 71.0% | 169 | 83% | 5 |
+| `tc_ft_blend` (a_exec) | 141/200 = 70.5% | 164 | 83% | 10 |
+| **`tc_ft_human` (a_H)** | **119/200 = 59.5%** | 140 | 72% | 11 |
+
+| Comparison | Discordant | p (exact) |
+|---|---|---|
+| **a_H vs a_exec** | 40 / 62 | **0.037** |
+| a_H vs control | 36 / 63 | **0.0086** |
+| a_H vs base | 32 / 55 | **0.018** |
+| a_exec vs control | 31 / 36 | 0.63 |
+| a_exec vs base | 45 / 46 | 1.00 |
+| control vs base | 47 / 43 | 0.75 |
+
+### The same three findings as the single-camera study
+
+1. **Training on the raw human action harms the policy** — 11.5 points below base,
+   13.5 below the control, significant against both.
+2. **Training on the executed blend is harmless** — indistinguishable from base and
+   control.
+3. **Corrections do not improve the policy.** No arm beats finetuning without them.
+
+A different scene, a different camera set, a base policy 19 points stronger (71% vs
+52%), and a fresh set of corrections give the same ordering. That is the most useful
+thing this round shows.
+
+### How much weight it carries
+
+This round was declared a pilot, so its own p = 0.037 is moderate evidence, not a
+pre-specified test, and six comparisons were run. Its value is as a **replication** of
+the pre-registered single-camera result (section 12, p = 0.00018): same direction, same
+arm harmed, same arm harmless, and the two supporting comparisons (a_H vs control, a_H
+vs base) agree at p < 0.02. Read together the conclusion is well supported; read alone
+this round would not be.
+
+### The mechanism, revised
+
+Section 12 attributed the harm to `a_H` being an out-of-distribution *magnitude*. This
+round weakens that account:
+
+| On steps where the labels differ | Single-camera | Two-camera |
+|---|---|---|
+| Base demos, label travel | 8.7 cm | 11.8 cm |
+| `D_human` | 14.1 cm (+62%) | 15.5 cm (+31%) |
+| `D_blend` | 3.7 cm (-57%) | 5.1 cm (-57%) |
+
+Here `D_blend` sits *further* from the demo distribution than `D_human` does, yet it is
+the harmless one. Magnitude alone therefore does not explain the result. What both
+rounds share is **self-consistency**: `a_exec` is by construction the action that
+produced the next observation, while `a_H` is a command the robot only 20% followed, so
+it is paired with states it never generated. That is the explanation that survives.
+
+### Other observations
+
+- The base reaches 71% here against 52% on the original setup, but the scene is also
+  easier (a 40% smaller block region, a closer bin), so the gain cannot be credited to
+  the wrist camera alone. The residual failure is unchanged: "never lifted the target".
+- Intervention rate was 9% in the first correction session and 13-26% in the other
+  nine — the operator calibrating. All 100 episodes were kept; six exceed 50%
+  corrective and one runs to 156 steps against a median of 71.
+- Base checkpoint `020000` was the final one, chosen without a sweep; `005000`-`015000`
+  were never evaluated.
+- Each arm is a single training run (seed 1000); training-seed variance is not
+  characterised, here or in the single-camera study.
+
+## 16. Next
 
 1. **Run the control arm** (section 13) to make the "beats base?" claims clean.
 2. **Update [OVERVIEW.md](OVERVIEW.md)** if the control changes any wording.
