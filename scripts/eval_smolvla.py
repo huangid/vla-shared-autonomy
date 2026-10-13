@@ -359,8 +359,17 @@ def run(env_cfg, agent_cfg):
     residual = None
     if args_cli.residual:
         from residual_copilot.pilot_models.residual_policy import ResidualPolicy
+        # Building the networks draws from torch's global RNG (layer initialisation),
+        # which would shift the noise SmolVLA samples from and make every episode
+        # diverge from the base run. Restore the RNG so the residual is the ONLY
+        # difference between this run and the base's.
+        _cpu_rng = torch.get_rng_state()
+        _cuda_rng = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
         residual = ResidualPolicy(args_cli.residual, device=args_cli.policy_device,
                                   cap=args_cli.residual_cap, zero=args_cli.residual_zero)
+        torch.set_rng_state(_cpu_rng)
+        if _cuda_rng is not None:
+            torch.cuda.set_rng_state_all(_cuda_rng)
         for v in residual.views:
             cam = "wrist_camera" if v == "wrist" else "upper_right_camera"
             if getattr(env_u, cam, None) is None:
