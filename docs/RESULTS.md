@@ -692,10 +692,74 @@ reported.
 **Not done:** iterating (collecting new corrections with the residual running, then
 retraining).
 
-## 17. Next
+## 17. Residual on a frozen base — result: no effect beyond run-to-run noise
 
-1. **Run the control arm** (section 13) to make the "beats base?" claims clean.
-2. **Update [OVERVIEW.md](OVERVIEW.md)** if the control changes any wording.
+200 episodes each, `--seed 123 --two_cam`, run 2026-10-13 exactly as planned in
+section 16. Logs: `docs/eval_logs/eval200_tc_residual_{state,zero,images}.log`.
+
+| Run | Success | Mean adjustment | Never lifted the target | Binned a distractor |
+|---|---|---|---|---|
+| Base `twocam_v1/020000` (section 15) | 142/200 = 71.0% | — | 53 | 5 |
+| **Base + zero adjustment (sanity)** | **157/200 = 78.5%** | 0.00 cm | 33 | 10 |
+| Base + `tc_residual_state` (primary) | 151/200 = 75.5% | 0.78 cm, 31% of steps > 1 cm | 42 | 6 |
+| Base + `tc_residual_images` | 155/200 = 77.5% | 0.96 cm, 39% of steps > 1 cm | 40 | 5 |
+| Control `tc_ballast_only` (section 15) | 146/200 = 73.0% | — | | |
+
+No adjustment ever reached the 5 cm cap.
+
+Paired McNemar exact tests (same 200 episodes):
+
+| Comparison | First only | Second only | p |
+|---|---|---|---|
+| zero vs base (same model twice) | 47 | 32 | 0.115 |
+| **state vs base (primary)** | 41 | 32 | **0.35** |
+| images vs base | 42 | 29 | 0.15 |
+| state vs control | 40 | 35 | 0.64 |
+| images vs control | 42 | 33 | 0.36 |
+| state vs zero | 32 | 38 | 0.55 |
+| images vs zero | 32 | 34 | 0.90 |
+| state vs images | 28 | 32 | 0.70 |
+
+**The sanity check failed, and that is the main finding.** With a zero adjustment the
+residual path runs the same frozen base on the same 200 episodes, and nothing it does
+reaches the simulator (adding an exact zero to the action; the torch RNG stream is
+restored after the network is built). It still disagreed with the original base run
+on 79 of 200 episodes and scored 15 episodes higher. The simulator is not repeatable
+between runs (GPU physics), so an episode's outcome is close to a coin flip for
+roughly 40% of layouts, and two runs of one model can differ by 15/200 (p = 0.115 —
+not significant, but large).
+
+Consequences:
+
+- **The primary hypothesis is not supported.** The state residual is not
+  distinguishable from the base (p = 0.35), and it scored *below* the zero-adjustment
+  run made the same day (151 vs 157). The images residual likewise (155 vs 157).
+  Neither residual measurably changes the success rate.
+- **The residual does what it learned, just without effect.** It moved the arm a mean
+  0.8-1.0 cm, mostly downward (mean vector (-0.3, -0.2, -0.35) cm state, (-0.37, -0.32,
+  -0.44) cm images), as the offline analysis predicted. The section 16 expectation —
+  "go 1 cm lower at the grasp" converts failed grasps — did not show: "never lifted"
+  failures in the residual runs (42, 40) are not lower than in the zero run (33).
+- **Pairing is weaker than assumed in sections 12-15.** McNemar remains a valid test
+  (it uses only the discordant episodes), but a base re-run alone produces ~80
+  discordant episodes, so differences under ~15/200 between single runs should not be
+  read as effects. The earlier conclusions survive this: `tc_ft_human` was 23-27
+  episodes below every other two-camera arm, and the single-camera round-3 gap was
+  19/100 episodes with p = 0.00018. The two-camera base figure itself (142/200) is one
+  draw; 142-157 is the range seen for that model.
+- Whether all three same-day runs being higher than the earlier ones (151-157 vs
+  141-146) is chance or something that changed between sessions is not established. A
+  plain base re-run (no `--residual`) would settle it.
+
+**Not done:** iterating the residual (collect corrections with it running, retrain);
+more than one run per configuration.
+
+## 18. Next
+
+1. **Re-run the plain base** (no `--residual`, `--seed 123 --two_cam`, 200 episodes)
+   to tell whether the same-day runs of section 17 were high by chance or because
+   something changed between sessions.
+2. **Update [OVERVIEW.md](OVERVIEW.md)** with the run-to-run noise finding.
 3. **Optional, for accuracy rather than the research question:** the 200
    shared-autonomy episodes are 200/200 successful, so labelling every step
    `exec_action` and pooling them with the 400 demos is standard DAgger aggregation

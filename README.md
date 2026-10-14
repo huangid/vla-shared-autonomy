@@ -1137,6 +1137,11 @@ python scripts/eval_smolvla.py --checkpoint $CK $COMMON \
   nothing). Most of what the corrections contain is one consistent nudge: about 1 cm
   down and toward -y just before the grasp.
 - Orientation and gripper are left to the base.
+- **Result** ([docs/RESULTS.md](docs/RESULTS.md) section 17): neither residual
+  changed the success rate measurably — state 151/200, images 155/200, zero adjustment
+  157/200, base 142/200 (state vs base p = 0.35). The zero run itself differed from the
+  original base run on 79 of 200 episodes: the simulator is not repeatable between
+  runs, so single-run differences under ~15/200 are noise.
 
 ## HuggingFace Collection
 
