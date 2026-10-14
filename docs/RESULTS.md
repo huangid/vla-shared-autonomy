@@ -520,7 +520,7 @@ Committed before any evaluation of the two-camera correction arms, so that a lat
 decision to extend the experiment cannot be mistaken for choosing the sample size that
 gave a favourable answer.
 
-**Setting.** New scene and sensors on the `wrist-camera` branch: a gripper-mounted
+**Setting.** New scene and sensors on the `two-camera` branch (formerly `wrist-camera`): a gripper-mounted
 wrist camera plus a square-on side camera, no front camera; bin moved to the robot's
 right at (0.37, -0.18); square 16 x 16 cm block region. Base policy `twocam_v1/020000`,
 240 demos. **Not comparable to the single-camera study** — both the cameras and the

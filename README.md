@@ -1001,7 +1001,12 @@ python scripts/eval_smolvla.py \
 trains the original state-based residual-RL copilot. Unrelated to the SmolVLA
 study — kept only for the residual-copilot framework.
 
-## Two-Camera Variant (`wrist-camera` branch only)
+## Two-Camera Variant (`two-camera` branch only)
+
+> **Branches.** `two-camera` (the default) holds this variant and every result through
+> [docs/RESULTS.md](docs/RESULTS.md) section 17. `single-camera` holds the original
+> one-camera scene and its results (sections 1-13). They were previously named
+> `wrist-camera` and `main`.
 
 A redesign of the RandomBlock scene around **two cameras** — one on the gripper, one
 square-on from the side — replacing the single calibrated front camera. It exists to
@@ -1009,7 +1014,7 @@ attack the failure mode the single-camera study could not fix: every v4/v5 model
 reached the right block and then missed the grasp (see
 [docs/RESULTS.md](docs/RESULTS.md)).
 
-> **Data and checkpoints do not cross between this branch and `main`.** The
+> **Data and checkpoints do not cross between this branch and `single-camera`.** The
 > observation space and the scene both differ. A two-camera checkpoint cannot run in a
 > one-camera env, and the 650 single-camera recordings cannot gain a second view
 > retroactively — only rendered frames were saved, not simulator state.
@@ -1043,7 +1048,7 @@ whole reason for the current pose.
 ### Workflow
 
 ```bash
-# 1. collect (one episode per launch, as on main)
+# 1. collect (one episode per launch, as on the `single-camera` branch)
 python scripts/play.py --task RandomBlock --pilot SpaceMousePilot \
   --num_envs 1 --record --yes --two_cam
 
