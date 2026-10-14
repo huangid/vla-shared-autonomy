@@ -307,6 +307,14 @@ python scripts/play.py \
 > failure modes and what they imply — are kept in **[docs/RESULTS.md](docs/RESULTS.md)**.
 > This section is the how-to; that file is the record.
 
+> **On this branch (`two-camera`) the RandomBlock scene is the redesigned one** — bin at
+> the robot's right, square 16 x 16 cm block region (see
+> [Two-Camera Variant](#two-camera-variant-two-camera-branch-only)). The step-by-step
+> walk-through below (steps 1-12, rounds v3-v5, correction rounds 1-3) was written for
+> the original single-camera scene and is kept because the two-camera workflow reuses
+> its commands. Its layout notes, demo counts and results belong to the
+> `single-camera` branch, where the full record lives.
+
 `RandomBlock` is the base task for the VLA shared-autonomy study. It reuses the
 `ThreeBlocks` scene but changes two things:
 
@@ -326,8 +334,8 @@ python scripts/play.py \
 > is effectively random each time. A 100-demo run came out 41/34/25. Check the
 > balance partway through and keep going if one colour is lagging.
 
-The **bin is not randomized**: it is pinned to a constant pose (`bin_pos`, default
-`(0.54, 0.0, 0.0025)`) every episode. The bin geometry is kinematic (inherited
+The **bin is not randomized**: it is pinned to a constant pose (`bin_pos`, on this
+branch `(0.37, -0.18, 0.0025)`; `(0.54, 0.0, 0.0025)` on `single-camera`) every episode. The bin geometry is kinematic (inherited
 from `ThreeBlocks.fixed_asset`) so it never moves under gravity or contact.
 
 Registered environments:
@@ -342,12 +350,13 @@ Registered environments:
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `randomize_positions` | `True` | master switch for block-position randomization |
-| `block_x_range` | `(0.30, 0.44)` | x-range each block is sampled from |
-| `block_y_range` | `(-0.15, 0.15)` | y-range each block is sampled from |
+| `block_x_range` | `(0.29, 0.45)` | x-range each block is sampled from |
+| `block_y_range` | `(-0.06, 0.10)` | y-range each block is sampled from |
 | `block_min_separation` | `0.06` | min centre-to-centre distance between blocks (rejection-resampled) |
-| `bin_clearance` | `0.11` | min distance a block may spawn from the bin centre |
+| `bin_clearance` | `0.12` | min distance a block may spawn from the bin centre |
+| `start_clearance` | `0.05` | min xy distance a block may spawn from the gripper's start pose |
 | `block_spawn_z` | `0.012` | block spawn height — the resting centre height of a 3 cm cube, so blocks spawn at rest rather than dropping |
-| `bin_pos` | `(0.54, 0.0, 0.0025)` | fixed bin pose — never resampled; the bin is kinematic |
+| `bin_pos` | `(0.37, -0.18, 0.0025)` | fixed bin pose — never resampled; the bin is kinematic |
 | `start_eef_xy` | `(0.36, 0.0)` | starting fingertip xy (over the block region) |
 | `start_eef_z` | `0.18` | starting fingertip height above the table (arm starts fairly upright) |
 | `single_target` | `True` | one instructed block per episode; the rest are distractors |
@@ -356,7 +365,7 @@ Registered environments:
 | `instruction_template` | `"pick up the {color} block and put it in the bin"` | instruction string format |
 
 Block sampling happens in `XArmEnv._sample_block_layout()` (uniform over the
-rectangle, rejection-resampled for separation + bin clearance). To build the
+rectangle, rejection-resampled for separation, bin clearance and start clearance). To build the
 "challenging task" held-out variation, subclass `RandomBlock` with disjoint (or
 wider) ranges and register a new cfg the same way `XArmRandomBlockCfg` is
 registered.
@@ -1093,7 +1102,7 @@ python scripts/shared_autonomy.py --two_cam \
 - Each view is probed for its own resolution, so the smaller wrist frames are fine.
 - Expect roughly 2x the dataset size and decode time of a single-view set; video decode
   is already the training bottleneck.
-- The square 16 x 16 cm region is 40% smaller in area than main's 14 x 30 cm, so success
+- The square 16 x 16 cm region is 40% smaller in area than the single-camera branch's 14 x 30 cm, so success
   rates are **not** directly comparable to the [results](docs/RESULTS.md) there.
 
 ### Residual on a frozen base (CR-DAgger-style)

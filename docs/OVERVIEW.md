@@ -16,7 +16,7 @@ a_exec = alpha * a_R + (1 - alpha) * a_H
 ```
 
 where `a_R` is the VLA's action, `a_H` the human's, and `alpha` the authority split
-(0.5 here). When the two disagree — `d_t = || a_H - a_R ||` above a threshold `tau` —
+(0.5 or 0.8 in the experiments). When the two disagree — `d_t = || a_H - a_R ||` above a threshold `tau` —
 the human is correcting the robot.
 
 **The question:** to improve the VLA from those episodes, should it be finetuned on
@@ -49,6 +49,12 @@ Why this task:
 - **It is hard in the right place.** A 3 cm block needs roughly 1.5 cm of accuracy to
   grasp, so the difficulty lives in precision — which is exactly what human
   corrections address.
+
+**Two scenes, one per branch.** The study was first run on `single-camera`: a fixed
+front camera, the bin straight ahead at (0.54, 0), blocks in a 14 x 30 cm rectangle.
+It was then repeated on `two-camera` (this branch, the repo default): a gripper-mounted
+wrist camera plus a square-on side camera, the bin at the robot's right (0.37, -0.18),
+blocks in a 16 x 16 cm square. Success rates do not compare across the two.
 
 Defined in `source/xarm_assembly_env/assembly_tasks_cfg.py` (`RandomBlock`) on top of
 `XArmEnv` / `XArmEnvGuidedDiffusion`. Actions are 8D absolute end-effector targets
@@ -155,6 +161,48 @@ Separately, round 1 established that **training recipe matters more than label
 choice**: corrections-only finetuning cost 11-15 points, and adding base-demo ballast
 repaired it (p = 0.027). No arm in any round improved on the base policy.
 
+The numbers above are the single-camera study; its full record is in `RESULTS.md` on
+the `single-camera` branch. [RESULTS.md](RESULTS.md) here holds the two-camera
+sections 14-17 below.
+
+### Two-camera round: the finding replicates
+
+New scene and cameras, 240 demos -> base `twocam_v1/020000` at **142/200 = 71%**.
+100 correction episodes at alpha = 0.8, then the same two arms plus a control
+(RESULTS sections 14-15):
+
+| Model | Success |
+|---|---|
+| control (50 base demos, no corrections) | 146/200 = 73.0% |
+| base | 142/200 = 71.0% |
+| D_blend (`a_exec`) | 141/200 = 70.5% |
+| **D_human (`a_H`)** | **119/200 = 59.5%** |
+
+`a_H` is again the harmful label (vs `a_exec` p = 0.037, vs control p = 0.0086, vs base
+p = 0.018), `a_exec` is again harmless, and again nothing beats the base. Declared a
+pilot in advance, so it counts as a replication of the pre-registered single-camera
+result rather than a test on its own. It also revised the mechanism: here `D_blend`'s
+labels sit *further* from the demo distribution than `D_human`'s, so magnitude alone
+does not explain the harm. What survives is **self-consistency** — `a_exec` is the
+action that produced the next observation; `a_H` was only 20% executed.
+
+### Residual on a frozen base: no effect
+
+A different use of the same corrections, in the style of CR-DAgger: keep the base
+frozen and train a small network to predict the adjustment `a_exec - a_R`, added to the
+base's action at run time (RESULTS sections 16-17). It learned "about 1 cm lower before
+the grasp", and applied it, but changed nothing measurable:
+
+| Run (same 200 episodes) | Success |
+|---|---|
+| base + state-only residual (primary) | 151/200 = 75.5% (vs base p = 0.35) |
+| base + image residual | 155/200 = 77.5% |
+| base + zero adjustment (sanity) | 157/200 = 78.5% |
+
+The sanity run is the base model again, yet it disagreed with the original base run on
+79 of 200 episodes: **the simulator is not repeatable between runs**, so single-run
+differences under ~15/200 are noise. The label findings above are larger than that.
+
 ## 5. Things that were wrong, and how they were caught
 
 Recorded because they shaped the results, and because each was invisible in the
@@ -189,18 +237,21 @@ training loss.
 
 1. **Answered:** `a_exec` beats `a_H`, and only when authority is skewed enough for the
    two to diverge. See section 4.
-2. **Why does neither label improve on the base?** Non-corrective steps are labelled
+2. **Why does nothing improve on the base?** Non-corrective steps are labelled
    with the policy's own action, so most of the finetuning is self-distillation. Only
-   the 5-12% corrective steps carry new information.
+   the 5-20% corrective steps carry new information. A residual on a frozen base, which
+   learns *only* from those steps, did not help either (two-camera section 17).
 3. **Would aggregating the successful shared-autonomy trajectories help?** The 200
-   episodes succeeded 200/200; labelling every step `exec_action` and pooling with the
-   400 demos is the untested, most promising route to higher success.
+   single-camera episodes succeeded 200/200 and the 100 two-camera ones 100/100;
+   labelling every step `exec_action` and pooling with the demos is the untested, most
+   promising route to higher success.
 4. **Stale corrections.** All corrections were recorded against `v5/025000`; a
    finetuned policy errs differently (the DAgger argument for iterating collection).
 5. **Does grasp failure cluster by table position?** `eval_smolvla.py` does not log
    block positions, so this remains untested. Correction directions were roughly
    isotropic (34% along the camera ray, 29% lateral, 38% vertical), which argues
    against monocular depth error and toward descent height / gripper timing.
+6. **Training-seed variance** is not characterised: every arm is one training run.
 
 ## 7. Environment
 
@@ -210,6 +261,7 @@ Isaac Sim 5.1 / Isaac Lab 2.3.2, SmolVLA (450M) via LeRobot, `uv` for dependenci
 SpaceMouse is required for demo collection and shared autonomy.
 
 Not version controlled: `logs/rollouts/` (recordings), `logs/data/` and
-`logs/lerobot/` (datasets), `outputs/train/` (checkpoints, ~1.3 GB each). Those exist
-only on the workstation — the 50 correction episodes in particular are unbacked-up and
-irreplaceable without redoing the teleop.
+`logs/lerobot/` (datasets), `outputs/train/` (checkpoints, ~1.3 GB each),
+`outputs/residual/` (residual networks), `docs/eval_logs/` (evaluation logs). Those
+exist only on the workstation — the correction episodes in particular
+(`logs/rollouts/`) are irreplaceable without redoing the teleop.

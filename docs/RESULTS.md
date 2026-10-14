@@ -1,518 +1,58 @@
-# RandomBlock / SmolVLA — experiment log
+# RandomBlock / SmolVLA — experiment log (two-camera)
 
-Running record of the base-policy rounds for the shared-autonomy study
-("Interactive Learning for VLA Shared Autonomy"). Step numbers refer to the
-RandomBlock workflow in the [README](../README.md).
+Running record of the shared-autonomy study ("Interactive Learning for VLA Shared
+Autonomy") on the `two-camera` branch. The single-camera study that came first is
+summarised in section 0; its full record (sections 1-13: datasets, configs, every
+evaluation, analysis plans) is in `docs/RESULTS.md` on the **`single-camera`** branch.
+Section numbers continue from there so cross-references stay valid.
 
 **Task.** `XArm-RandomBlock-*`: three 3 cm blocks (red / green / blue) spawn at
-random xy in a 14 x 30 cm rectangle in front of the arm; the bin is fixed and
-kinematic. Each episode names one colour — *"pick up the {colour} block and put it
-in the bin"* — and the other two are distractors that must stay out of the bin.
-Success requires the named block binned and neither distractor binned.
+random xy in a 16 x 16 cm square (x 0.29-0.45, y -0.06..0.10); the bin is fixed and
+kinematic at (0.37, -0.18), the robot's right. Each episode names one colour —
+*"pick up the {colour} block and put it in the bin"* — and the other two are
+distractors that must stay out of the bin. Success requires the named block binned
+and neither distractor binned. Cameras: gripper-mounted wrist (320x240) and
+square-on side (480x360, 44 deg down); no front camera.
 
-**Current base policy:** `outputs/train/rb_smolvla_v5/checkpoints/025000/pretrained_model`
+**Current base policy:** `outputs/train/twocam_v1/checkpoints/020000/pretrained_model`
+(240 demos).
 
----
-
-## 1. Headline result
-
-| Round | Demos | Best checkpoint | Success (20 eps, seed 123) | Grounding |
-|---|---|---|---|---|
-| v3 | 100 | 10k of 20k | **0/20 = 0%** | 60% |
-| v4 | 250 | 25k of 30k | **11/20 = 55%** | 90% |
-| v5 | 400 | 25k–30k of 40k | **10–11/20 = 50–55%** | 75–95% |
-
-Two findings:
-
-1. **100 demos is not enough for this task; 250 is.** 0% → 55%. The SmolVLA paper's
-   "~50 demos per variation" does not transfer here, because target, distractors and
-   layout are all randomized, so no scene repeats.
-2. **250 → 400 demos changed nothing.** All five v5 checkpoints land at 10–11/20,
-   against v4's 11/20. Data is no longer the binding constraint; more teleop of the
-   same kind is not worth the hours.
-
-Treat 10 vs 11 out of 20 as identical (±11% standard error at n=20).
+**Evaluation protocol.** `--num_episodes 200 --seed 123 --two_cam --n_action_steps 5
+--max_steps 150 --debug_grounding`; every model faces the same 200 layouts, compared
+with the paired McNemar exact test. The simulator is not repeatable between runs
+(section 17): two runs of one model differed on 79 of 200 episodes, so single-run
+differences under ~15/200 are not effects.
 
 ---
 
-## 2. Datasets
+## 0. Summary of the single-camera study (full record on `single-camera`)
 
-| Set | Demos | Frames | Composition | Colour balance |
-|---|---|---|---|---|
-| `randomblock_vla` | 100 | 9,614 | 100 unique random layouts | 46 G / 33 B / 21 R |
-| `randomblock_vla_250` | 250 | 24,081 | + 50 layouts x 3 colours (seeds 1–50) | 96 G / 83 B / 71 R |
-| `randomblock_vla_400` | 400 | 37,370 | + 50 layouts x 3 colours (seeds 51–100) | 146 G / 133 B / 121 R |
+Original scene: front camera only, bin straight ahead at (0.54, 0), blocks in a
+14 x 30 cm rectangle. Not comparable to the two-camera numbers below.
 
-**Why "layout x 3 colours".** In the first 100 demos every layout appeared exactly
-once, so the layout alone predicted the demonstrated trajectory and the instruction
-was redundant — a policy could fit the data without reading the prompt. Recording one
-layout under all three instructions makes the image ambiguous and the instruction the
-only disambiguator. `play.py --layout_seed N --target_color C` (step 2b) does this;
-`scripts/collect_randomblock.sh START END` runs the batch.
+**Base policy.** 100 demos -> 0/20; 250 -> 11/20; 400 (v5 @ 25k) -> **104/200 = 52%**.
+More demos past 250 changed nothing; nearly every failure was "never lifted the
+target" (a grasp-precision problem, not block selection: 76% grounding).
 
-The first 100 demos also drifted to 46/33/21 on colour, because the target colour is
-drawn independently on each launch and one launch records one episode. `--target_color`
-removes that drift.
+**Correction rounds** (all finetuned from v5/025000, same 200 episodes):
 
-Layout seeds 1–50 and 51–100 produce 150 distinct reach targets each, with no overlap
-and no empty cell in a 5x5 binning of the spawn rectangle, so the repeated-scene design
-costs nothing in positional coverage.
-
----
-
-## 3. Training configurations
-
-All rounds: `lerobot/smolvla_base`, batch 64, `train_expert_only`, frozen vision
-encoder, lr 1e-4, chunk_size 50, photometric augmentation (brightness / contrast /
-saturation / hue ±0.04 / sharpness, max 3 per sample; LeRobot's default random affine
-deliberately excluded — shifting the image moves the blocks relative to the arm).
-
-| Run | Dataset | Steps | save_freq | Epochs at best ckpt | Wall clock |
+| Round | alpha | Corrections | D_human (a_H) | D_blend (a_exec) | p (human vs blend) |
 |---|---|---|---|---|---|
-| `rb_smolvla_v3` | 100 demos | 20,000 | 2,500 | ~67 | ~3.5 h |
-| `rb_smolvla_v4` | 250 demos | 30,000 | 2,500 | ~67 | ~5.5 h |
-| `rb_smolvla_v5` | 400 demos | 40,000 | 5,000 | ~43–64 | ~8 h |
+| 1 (corrections only) | 0.5 | 50 eps | 37.5% | 41.0% | 0.53 |
+| 2 (+ 100 base demos) | 0.5 | 50 eps | 49.0% | 44.5% | 0.41 |
+| 3 (+ 100 base demos) | 0.5 | 100 eps | 47.5% | 49.0% | 0.83 |
+| **3, pre-registered** | **0.8** | **100 eps** | **34.0%** | **53.0%** | **0.00018** |
 
-Step counts were scaled to hold epochs roughly constant. Final training loss: v4
-0.021, v5 0.027 — higher on v5 as expected, since 400 varied demos are harder to fit
-than 250; it does not indicate a worse policy.
+Base 52.0%; control (`ballast_only`, the same 100 base demos, no corrections) 48.0%.
 
-Throughput is data-bound, not GPU-bound (`data_s` ≈ 0.39 s vs `updt_s` ≈ 0.28 s per
-step even at `--num_workers=12`): video decode is the bottleneck.
-
----
-
-## 4. Evaluation protocol
-
-```bash
-python scripts/eval_smolvla.py \
-  --checkpoint outputs/train/rb_smolvla_v5/checkpoints/025000/pretrained_model \
-  --num_episodes 20 --seed 123 --n_action_steps 5 --max_steps 150 --debug_grounding \
-  --headless
-```
-
-- **20 episodes, `--seed 123`** — the same episode sequence for every checkpoint, so
-  numbers are comparable across runs. Layouts are freshly sampled, *not* the training
-  scenes.
-- **`--n_action_steps 5`** — the checkpoint default is 50 (3.3 s open-loop, longer than
-  half an episode), which cannot correct a drifting grasp. This is an inference-time
-  setting; no retraining needed.
-- **`--max_steps 150`** — 10 s cap; successful demos average ~96 steps.
-- **Grounding** = does the first predicted chunk's lowest point land nearest the named
-  block (chance 33%). It is measured on the *first* observation, so it separates "wrong
-  from the start" from "drifted later".
+- **The hypothesis was refuted:** the blended executed action `a_exec` is the better
+  label. Raw human actions `a_H` harmed the policy at alpha = 0.8 (vs control
+  p = 0.0051) and made no difference at alpha = 0.5, where the two labels are close.
+- **No arm improved on the base or the control.**
+- Training recipe mattered more than label choice in round 1: corrections-only
+  finetuning cost 11-15 points; adding base-demo ballast repaired it.
 
 ---
-
-## 5. Full results (20 episodes, seed 123, n_action_steps 5)
-
-| Model | Demos | Success | Per colour (R/G/B) | Within 1.5 cm | Grounding | Median closest |
-|---|---|---|---|---|---|---|
-| v3 @ 10k | 100 | 0/20 | 0/6, 0/7, 0/7 | 3/20 | 60% | 3.5 cm |
-| v4 @ 15k | 250 | 6/20 | — | 10/20 | 75% | 1.6 cm |
-| v4 @ 20k | 250 | 7/20 | — | 10/20 | 70% | 1.5 cm |
-| **v4 @ 25k** | 250 | **11/20** | 4/6, 5/7, 2/7 | 9/20 | 90% | 1.6 cm |
-| v4 @ 30k | 250 | 9/20 | 3/6, 3/7, 3/7 | 11/20 | 90% | 1.4 cm |
-| v5 @ 20k | 400 | 10/20 | 2/6, 3/7, 5/7 | 14/20 | 70% | 1.0 cm |
-| **v5 @ 25k** | 400 | 10/20 | 1/6, 3/7, 6/7 | 11/20 | **95%** | 1.3 cm |
-| v5 @ 30k | 400 | 11/20 | 2/6, 5/7, 4/7 | 10/20 | 75% | 1.4 cm |
-| v5 @ 35k | 400 | 10/20 | 2/6, 3/7, 5/7 | 13/20 | 85% | 1.1 cm |
-| v5 @ 40k | 400 | 10/20 | 3/6, 4/7, 3/7 | 14/20 | 70% | 1.1 cm |
-
-Per-colour splits at n=6–7 are noise; ignore single-colour swings.
-
-### Failure modes
-
-| Model | SUCCESS | never lifted | binned distractor | grasped, not binned |
-|---|---|---|---|---|
-| v3 @ 10k | 0 | 17 | 3 | 0 |
-| v4 @ 25k | 11 | 9 | 0 | 0 |
-| v5 @ 25k | 10 | 10 | 0 | 0 |
-| v5 @ 30k | 11 | 9 | 0 | 0 |
-| v5 @ 40k | 10 | 10 | 0 | 0 |
-
-### Target vs aimed-at (v5 @ 25k, the cleanest)
-
-```
- target      red  green   blue    n
- red           5      0      1     6
- green         0      7      0     7
- blue          0      0      7     7
-```
-
----
-
-## 6. What the numbers say
-
-**Block selection is solved.** 90–95% grounding at the best checkpoints, a strong
-confusion diagonal, and no distractor binned by any v4/v5 checkpoint (v3 did it 3
-times). The policy reads the instruction.
-
-**Grasp execution is the ceiling.** Every remaining v4/v5 failure is "never lifted the
-target". v5 reaches within 1.5 cm more often than v4 (14/20 vs 9/20) yet succeeds no
-more often, which argues the limit is no longer aim precision alone but the grasp
-itself — descent height and when the gripper closes.
-
-**More demos will not fix it.** 250 → 400 moved nothing, and the near-miss profile
-says the missing ingredient is corrective signal, not more nominal demonstrations —
-which is exactly what the shared-autonomy study supplies.
-
-**This is the right base policy for the study.** Step 2 of the plan asks for a policy
-that is *partially competent*: it understands the instruction, reaches the right block,
-and misses roughly half the grasps. A near-perfect policy would leave nothing for human
-corrections to improve.
-
----
-
-## 7. Caveats
-
-- **n = 20 per checkpoint.** Standard error ≈ 11%. Differences under ~5 episodes are
-  not meaningful; the v3-vs-v4 gap (0 vs 11) is.
-- **`closest approach` is slightly unreliable on *successful* episodes.** The env
-  auto-resets inside the step that ends an episode, so the final reading compares the
-  reset fingertip against the *next* episode's blocks. Success rates, failure modes and
-  grounding are unaffected.
-- **The v4 @ 25k baseline re-run alongside v5 was interrupted** at startup; the v4
-  numbers above come from its earlier run under identical settings (same seed, same
-  flags).
-- **An earlier v3 result of 2/6 was noise.** On the seeded 20-episode protocol v3
-  scores 0/20. Small-n evals misled the diagnosis once already.
-- **Untested hypothesis:** whether failures cluster at particular table positions (e.g.
-  far or edge placements). `eval_smolvla.py` does not log block positions, so the logs
-  cannot answer it. Adding that would settle whether the spawn range is too wide for
-  the data budget.
-
----
-
-## 8. Reproducing
-
-```bash
-# dataset  (step 5)
-python scripts/npy_to_lerobot.py --input logs/data/randomblock_demos.npy \
-  --repo_id local/randomblock_vla_400 --root logs/lerobot/randomblock_vla_400 \
-  --images --overwrite
-
-# training (step 6/8) — full command in the README
-lerobot-train --policy.path=lerobot/smolvla_base ... \
-  --batch_size=64 --steps=40000 --save_freq=5000 --num_workers=12 \
-  --output_dir=outputs/train/rb_smolvla_v5
-
-# checkpoint sweep (step 7)
-for ck in v5/020000 v5/025000 v5/030000 v5/035000 v5/040000; do
-  run=${ck%%/*}; step=${ck##*/}
-  python scripts/eval_smolvla.py \
-    --checkpoint outputs/train/rb_smolvla_$run/checkpoints/$step/pretrained_model \
-    --num_episodes 20 --seed 123 --debug_grounding --max_steps 150 --n_action_steps 5 \
-    --headless 2>&1 | tee /tmp/eval_${run}_${step}.log
-done
-```
-
-Raw eval output for each run is in `/tmp/eval_<run>_<step>.log` (not version
-controlled; copy anything you need to keep).
-
----
-
-## 9. Shared autonomy: D_human vs D_blend (round 1)
-
-The study's main comparison. `scripts/shared_autonomy.py` runs SmolVLA and the human
-SpaceMouse on the same observation each step, executes `a_exec = alpha*a_R +
-(1-alpha)*a_H` (alpha = 0.5, blending gated on human input), and logs
-`(o_t, a_H, a_R, a_exec)`.
-
-**Correction sessions** — base policy `rb_smolvla_v5/025000`, 5 sessions of 10:
-
-| | |
-|---|---|
-| Episodes | 50, **50/50 successful** (the policy alone scores ~52%) |
-| Steps | 4,144, of which **721 corrective** (17%) |
-| Correction bursts | 179, median 3 steps, clustered in the approach phase |
-| Direction disagreement | median 69 deg, p25 45, p90 122 |
-| Selection at tau = 0 / 45 / 90 deg | 721 / 498 / 218 steps |
-
-**Datasets.** `D_human` and `D_blend` share every observation and the gripper channel,
-differing on exactly the 711 selected corrective steps in position/orientation only:
-`a_H` vs `a_exec` (median gap 4.3 cm, p90 8.1 cm). Non-corrective steps take the
-policy's own action in both.
-
-**Finetuning.** Both from `rb_smolvla_v5/025000`, identical settings — 3,000 steps
-(~47 epochs over 4,094 frames), batch 64, lr 2.5e-5, `--seed 1000`, corrections only,
-no base demos mixed in. Final loss: human 0.040, blend 0.036.
-
-### Result: both finetunes are significantly WORSE than the base policy
-
-200 episodes, `--seed 123`, identical episode sequence across all three runs, so the
-comparison is paired (McNemar exact test on discordant pairs):
-
-| Model | Success | vs base | Within 1.5 cm | Grounding | Median closest |
-|---|---|---|---|---|---|
-| **base v5 @ 25k** | **104/200 = 52.0%** | — | 130/200 | 76% | 1.0 cm |
-| `ft_blend` @ 3k | 82/200 = 41.0% | **p = 0.032** | 115/200 | 78% | 1.2 cm |
-| `ft_human` @ 3k | 75/200 = 37.5% | **p = 0.0046** | 114/200 | 70% | 1.3 cm |
-
-| Pair | Discordant | p (exact) |
-|---|---|---|
-| base vs human | 64 / 35 | **0.0046** |
-| base vs blend | 59 / 37 | **0.032** |
-| human vs blend | 42 / 49 | 0.53 |
-
-Two conclusions, both solid at this sample size:
-
-1. **Finetuning on corrections alone degrades the policy** — by 11-15 points, in both
-   arms. The damage shows up in the approach: within-grasping-range episodes fall from
-   130/200 to ~115/200, and mean closest approach worsens by ~0.25 cm.
-2. **The label choice makes no measurable difference** (37.5% vs 41.0%, p = 0.53). The
-   study's central question is *not answered* by this round: with both arms degraded by
-   a shared cause, there is nothing to compare.
-
-The most likely mechanism is catastrophic forgetting: 47 epochs over 4,094 frames of
-corrections-only data, against a policy trained on 37,370 frames. Earlier checkpoints
-do not rescue it — at 1k steps (50 episodes) human scored 17/50 and blend 21/50, no
-better than at 3k, so this is not simple over-training.
-
-### Bug found and fixed mid-round: the human gripper channel
-
-The first `D_human` build took `base_action.gripper` literally. The SpaceMouse reports
-a *latched* open/closed state, not an intent, and a driver who steers position while
-leaving grasping to the policy emits `gripper = 0.0` (open) on every step — measured,
-that was all 4,144 steps. So `D_human` labelled 154 corrective steps (21% of them)
-"hold the gripper OPEN" at the moments the policy was closing: it was training the
-model not to grasp.
-
-The symptom was diagnostic: that build reached grasping range more often than any
-other model (34/50) while converting worst (17/50). `D_human` now takes the gripper
-from the *executed* action — the policy's when the human leaves grasping alone, the
-human's during the grip-hold window after a button press. The numbers above are from
-the corrected rebuild.
-
-### Label scale, checked and cleared
-
-Suspecting the human's teleop targets were on a smaller scale than the policy's own
-action distribution, measured distance-from-fingertip per label:
-
-| Source | Median |
-|---|---|
-| Base demos (what v5 learned from) | 8.7 cm |
-| Policy's own actions (non-corrective steps) | 13.2 cm |
-| Human corrections (`D_human`) | 7.6 cm |
-| Blended actions (`D_blend`) | 4.9 cm |
-
-The human's corrections sit closer to the original demo distribution than the policy's
-own outputs do, so scale mismatch does not explain the degradation. `D_blend` is the
-outlier at 4.9 cm — averaging two directions ~69 deg apart shortens the vector — which
-is a reason to expect the blend to be the weaker target, though the eval does not
-separate them.
-
-## 10. Correction round 2: with base-demo ballast
-
-Round 1 showed corrections-only finetuning degrades the policy, so both arms were
-rebuilt as **corrections + 100 base demos** (`merge_npy_datasets.py`, seeded so the
-same 100 episodes land in both): 150 episodes, 13,273 frames, differing labels 711 =
-**5.4%** of the data (was 17%). 5,000 steps (~24 epochs), otherwise identical settings.
-
-### All five models, 200 identical episodes, paired
-
-| Model | Training data | Success | vs base |
-|---|---|---|---|
-| **base v5 @ 25k** | 400 demos | **104/200 = 52.0%** | — |
-| `mix_human` @ 5k | corrections + 100 demos | 98/200 = 49.0% | p = 0.60 |
-| `mix_blend` @ 5k | corrections + 100 demos | 89/200 = 44.5% | p = 0.15 |
-| `ft_blend` @ 3k | corrections only | 82/200 = 41.0% | p = 0.032 |
-| `ft_human` @ 3k | corrections only | 75/200 = 37.5% | p = 0.0046 |
-
-| Pair | p (McNemar exact) |
-|---|---|
-| `ft_human` -> `mix_human` | **0.027** — ballast significantly repaired the damage |
-| `ft_blend` -> `mix_blend` | 0.53 |
-| base vs `mix_human` | 0.60 |
-| base vs `mix_blend` | 0.15 |
-| **`mix_human` vs `mix_blend`** | **0.41** |
-
-### What this establishes
-
-1. **Base-demo ballast fixes the degradation.** `mix_human` is significantly better
-   than `ft_human` (p = 0.027) and statistically indistinguishable from the base. The
-   round-1 damage was catastrophic forgetting, as suspected.
-2. **Corrections do not improve the policy either.** Neither mixed model beats base;
-   the best (`mix_human`, 49.0%) is nominally *below* it. 721 corrective samples at
-   5.4% of the training mix move nothing.
-3. **The study's question remains unanswered** (p = 0.41), and the direction is *not*
-   consistent across rounds: round 1 had blend ahead (41.0% vs 37.5%), round 2 has
-   human ahead (49.0% vs 44.5%). Two rounds pointing opposite ways is the signature of
-   noise, not a small real effect.
-
-Grounding is unchanged by any of this (base 76%, both mixed arms 74%), as is the
-failure profile: "never lifted the target" dominates throughout.
-
-### Why more evaluation will not settle it
-
-At the observed effect (discordant split 52/43), reaching 80% power needs ~874
-discordant pairs, i.e. **~1,840 episodes per model — about 20 h of evaluation each**.
-The answer is not more eval episodes; it is a larger effect or none at all.
-
-Levers that would increase the effect size, rather than the sample size:
-
-- **Raise alpha.** At alpha = 0.5 the blend sits midway, so `a_exec` and `a_H` differ
-  by half the disagreement (median 4.3 cm). At alpha = 0.8 that gap is 1.6x larger,
-  making the two labels genuinely different targets rather than near-neighbours.
-- **More corrective share.** More correction episodes raises the 5.4% contrast without
-  removing the ballast that prevents forgetting.
-- **Corrections against the current policy.** These describe v5 @ 25k's mistakes; any
-  finetuned policy errs differently (the DAgger argument).
-
-## 11. Round 3 — analysis plan (written BEFORE collection)
-
-Recorded in advance so the reported result cannot be chosen after seeing the numbers.
-Rounds 1 and 2 were both null on the label question with the direction flipping
-between them, so round 3 changes the two things that govern *effect size* rather than
-sample size, and fixes what will be reported.
-
-**Design.** 2 x 2: alpha in {0.5, 0.8} x label in {a_H, a_exec}. 100 correction
-episodes per alpha (the existing 50 at alpha = 0.5 plus 50 new; 100 new at alpha =
-0.8), each mixed with the same seeded 100 base demos. Training identical to round 2
-(5,000 steps, lr 2.5e-5, seed 1000). Evaluation: 200 episodes, `--seed 123`, paired
-McNemar exact test — the same protocol and the same episodes as every earlier model.
-
-**Primary comparison (declared in advance):** `mix08_human` vs `mix08_blend`, i.e. the
-label choice at alpha = 0.8. Significance at p < 0.05 on this one test.
-
-**Secondary (reported, not used to claim the hypothesis):**
-- label choice at alpha = 0.5 with 100 episodes
-- the effect of alpha itself
-- each arm against the base policy (104/200)
-
-**Rationale for the two changes.** At alpha = 0.5 the executed action is the midpoint,
-so `a_exec` and `a_H` differ by only half the disagreement (median 4.3 cm) — the two
-labels are near-neighbours. At alpha = 0.8 that gap is 1.6x larger. Doubling the
-correction episodes raises the share of training data whose labels differ from 5.4% to
-~8.3%. Together they give the largest honest contrast available without changing the
-task or the base policy.
-
-**Stopping rule.** Round 3 is the last round. Whatever it shows is what gets reported;
-no further rounds will be run in search of a favourable result. A null across three
-rounds — at 1.6x label separation and 1.5x corrective share — is the finding.
-
-## 12. Round 3 result: the hypothesis is refuted, with a dose-response
-
-Executed as pre-registered in section 11. Four arms, each `rb_smolvla_v5/025000`
-finetuned on 100 correction episodes mixed with the same seeded 100 base demos,
-6,500 steps, lr 2.5e-5, seed 1000. 200 paired evaluation episodes, `--seed 123`, the
-same episode sequence as every earlier model.
-
-| Model | alpha | Labels | Success | Within 1.5 cm | Grounding |
-|---|---|---|---|---|---|
-| base v5 @ 25k | — | — | 104/200 = 52.0% | 130/200 | 76% |
-| `mix08_blend` | 0.8 | a_exec | **106/200 = 53.0%** | 123/200 | 80% |
-| `mix05b_blend` | 0.5 | a_exec | 98/200 = 49.0% | 114/200 | 79% |
-| `mix05b_human` | 0.5 | a_H | 95/200 = 47.5% | 116/200 | 78% |
-| `mix08_human` | 0.8 | a_H | **68/200 = 34.0%** | 120/200 | 72% |
-
-**Primary test (declared in advance):** `mix08_human` vs `mix08_blend` —
-discordant 31/69, **p = 0.00018**. The blend wins decisively.
-
-| Secondary | Result |
-|---|---|
-| a_H vs a_exec at alpha = 0.5 | 95 vs 98, p = 0.83 — null |
-| base vs `mix08_human` | **p = 0.0011** — training on a_H actively harms |
-| base vs `mix08_blend` | p = 0.93 — the blend is harmless |
-| base vs either alpha = 0.5 arm | p = 0.44 / 0.61 — null |
-
-### The hypothesis was wrong, and the pattern says why
-
-The study predicted a_H would be the stronger signal because a_exec is contaminated by
-the policy's own action. The opposite holds: **a_exec is the better label, and a_H is
-actively damaging — but only when the two diverge.**
-
-| alpha | Label gap | a_H vs a_exec |
-|---|---|---|
-| 0.5 | 6.2 cm | null (p = 0.83) |
-| 0.8 | 10.9 cm | **a_exec wins (p = 0.00018)** |
-
-That is a dose-response: the effect is absent when the labels are close and large when
-they separate, which is what a real mechanism looks like rather than noise. It also
-explains rounds 1 and 2 — both ran at alpha = 0.5, where there is nothing to detect.
-
-**The mechanism is off-policy mismatch, visible directly in the labels.** On the steps
-where the two disagree:
-
-| | Distance the label asks the arm to travel |
-|---|---|
-| Base demos (what the policy learned from) | 8.7 cm |
-| `D_blend` at alpha = 0.8 | 3.7 cm |
-| `D_human` at alpha = 0.8 | **14.1 cm** |
-
-At alpha = 0.8 the human has only 20% authority, so they push hard and `a_H` becomes a
-target far beyond anything the robot executed — 14.1 cm, well outside the demo
-distribution. Those labels are paired with observations that `a_exec` produced, not
-`a_H`, so the policy is taught to command large displacements that never generated the
-states it sees. The resulting policy overshoots: it still reaches grasping range about
-as often (120/200 vs 123/200) but converts far less, loses grounding (72% vs 80%), and
-bins a distractor 9 times against the blend's 4.
-
-`a_exec` has no such problem: it is by construction what produced the next observation,
-so it is self-consistent imitation data.
-
-### What this means for the study
-
-1. **The answer is a_exec, not a_H** — the reverse of the hypothesis, at p = 0.00018 on
-   a pre-registered test.
-2. **The effect only exists when authority is skewed.** At alpha = 0.5, either label is
-   equally (un)helpful. The naive intuition "raw human intent is purer" fails precisely
-   where it would matter most.
-3. **Neither label improves on the base policy.** The best arm matches it (53.0% vs
-   52.0%, p = 0.93). Corrections at this scale do not raise success; the finding is
-   about which label avoids *harm*.
-4. **a_H is not "the human's intent" in an absolute-target action space.** It is the
-   human's command given the authority they were granted, so its magnitude is an
-   artefact of alpha. Any future use of raw human actions should rescale to the policy's
-   action distribution, or use a relative/velocity action space where the human's
-   command does not depend on alpha.
-
-### Caveats
-
-- One operator, one task, one base policy. The dose-response is within-study.
-- The alpha = 0.5 fresh set had a lower intervention rate (10% of steps) than both the
-  alpha = 0.8 set (24%) and round 2's alpha = 0.5 set (17%), so the alpha contrast is
-  partly confounded with how much the operator intervened as they grew practised.
-- Gripper authority reached the operator only partway through collection (see the fixes
-  in section 9); human-held gripper steps are 5-6% in both round-3 conditions.
-- The base checkpoint was selected on an underpowered 20-episode evaluation; only
-  `v5/025000` was ever characterised at n = 200.
-
-## 13. Control arm: ballast without corrections
-
-Every finetuned arm trained on correction episodes **plus 100 of the 400 base demos**,
-so "arm vs base policy" confounded two changes: adding corrections, and finetuning on a
-quarter of the original data. `ballast_only` isolates them — the same seeded 100-demo
-slice, same base checkpoint, lr and seed, 3,400 steps so those demos get the same ~23.7
-passes they received inside the mixed arms (measured 23.71 vs 23.6). No corrections.
-
-**Control: 96/200 = 48.0%**, and it is indistinguishable from the 400-demo base policy
-(104/200, p = 0.47) — so finetuning on the 100-demo subset was not itself harmful, and
-the earlier base comparisons were sound.
-
-All six models, 200 identical episodes, paired:
-
-| Model | Success | vs control | vs base |
-|---|---|---|---|
-| `mix08_blend` (alpha 0.8, a_exec) | 106/200 = 53.0% | p = 0.40 | p = 0.93 |
-| base v5 @ 25k (400 demos) | 104/200 = 52.0% | p = 0.47 | — |
-| `mix05b_blend` (alpha 0.5, a_exec) | 98/200 = 49.0% | p = 0.92 | p = 0.61 |
-| **`ballast_only` (control)** | **96/200 = 48.0%** | — | p = 0.47 |
-| `mix05b_human` (alpha 0.5, a_H) | 95/200 = 47.5% | p = 1.00 | p = 0.44 |
-| `mix08_human` (alpha 0.8, a_H) | 68/200 = 34.0% | **p = 0.0051** | **p = 0.0011** |
-
-With the control in place the secondary claims sharpen:
-
-1. **Corrections never help.** No arm beats finetuning on the same demos *without*
-   corrections (best p = 0.40). The corrective signal — 5-12% of the training data —
-   adds nothing measurable at this scale.
-2. **Only `a_H` at alpha = 0.8 does harm, and it is the labels, not the recipe.**
-   `mix08_human` is significantly worse than the control (p = 0.0051) as well as the
-   base (p = 0.0011). The control shares its recipe, its demo slice and its step budget,
-   and differs only by having no correction episodes — so the damage is attributable to
-   the raw-human labels themselves.
-3. **Finetuning on a demo subset is harmless.** Control vs base p = 0.47, which
-   retrospectively validates the round 1-3 comparisons against the base.
 
 ## 14. Two-camera round — analysis plan (written BEFORE the evaluation)
 
@@ -759,13 +299,13 @@ more than one run per configuration.
 1. **Re-run the plain base** (no `--residual`, `--seed 123 --two_cam`, 200 episodes)
    to tell whether the same-day runs of section 17 were high by chance or because
    something changed between sessions.
-2. **Update [OVERVIEW.md](OVERVIEW.md)** with the run-to-run noise finding.
-3. **Optional, for accuracy rather than the research question:** the 200
-   shared-autonomy episodes are 200/200 successful, so labelling every step
-   `exec_action` and pooling them with the 400 demos is standard DAgger aggregation
-   and the most promising route to raising success. Keep it separate from the
-   label-comparison experiments.
-4. Smaller, unresolved: sweep `--n_action_steps` (fixed at 5 from a 6-episode
-   comparison); fix the `closest approach` contamination on successful episodes; log
-   block positions in `eval_smolvla.py` to test whether failures cluster by table
-   position.
+2. **Training-seed replication** of the `tc_ft_human` / `tc_ft_blend` arms: each is
+   one training run, and seed variance is not characterised in either study.
+3. **Iterate the residual** (collect corrections with it running, retrain) — the
+   DAgger step section 16 left out. Section 17 gives no sign it would help.
+4. **Base-checkpoint sweep** (`twocam_v1/005000`-`015000` were never evaluated).
+5. **Aggregation for accuracy, separate from the label question:** the 100
+   shared-autonomy episodes are 100/100 successful; labelling every step
+   `exec_action` and pooling them with the 240 demos is standard DAgger aggregation.
+6. Smaller: sweep `--n_action_steps`; log block positions in `eval_smolvla.py` to
+   test whether failures cluster by table position.
