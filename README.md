@@ -1215,6 +1215,29 @@ python scripts/eval_smolvla.py \
   142 and 142 but flip ~70 episodes between them, so treat a gain under ~15/200 as
   not shown.
 
+### Weaker base, alpha 0.5 (round in progress)
+
+Corrections on `twocam_v1/010000` (halfway through base training, chosen before it was
+evaluated) at alpha = 0.5: more failures to correct than at 020000, and both labels
+can again be built from the same episodes.
+
+```bash
+# collect, 10 sessions of 10 (change s1 .. s10)
+python scripts/shared_autonomy.py --two_cam \
+  --checkpoint outputs/train/twocam_v1/checkpoints/010000/pretrained_model \
+  --num_episodes 10 --alpha 0.5 --rollout_dir logs/rollouts/tc10k_a05_s1
+
+# the base's own score, needed as the comparison
+python scripts/eval_smolvla.py \
+  --checkpoint outputs/train/twocam_v1/checkpoints/010000/pretrained_model \
+  --num_episodes 200 --seed 123 --two_cam --debug_grounding --max_steps 150 \
+  --n_action_steps 5 --headless 2>&1 | tee /tmp/eval200_twocam_v1_010000.log
+```
+
+Planned arms, each finetuned from `010000` with all 240 base demos: corrections
+labelled `blend` (a_exec), corrections labelled `human` (a_H), and demos only (the
+control that separates "corrections helped" from "more training helped").
+
 ## HuggingFace Collection
 
 All data, models, and assets are hosted as a [HuggingFace collection](https://huggingface.co/collections/shashuo0104/residual-copilot), auto-downloaded on first use.
