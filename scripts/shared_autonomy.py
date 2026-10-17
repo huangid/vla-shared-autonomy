@@ -60,6 +60,11 @@ parser.add_argument("--alpha", type=float, default=0.5,
 parser.add_argument("--blend_always", action="store_true", default=False,
                     help="Blend on every step, including while the SpaceMouse is untouched. "
                          "Off by default — see the idle-gating note in the module docstring.")
+parser.add_argument("--replan_on_release", action="store_true", default=False,
+                    help="When the human lets go of the SpaceMouse, discard SmolVLA's queued "
+                         "actions so its next action is planned from where the human left the "
+                         "arm. Use with --alpha 0 (full takeover): otherwise the robot first "
+                         "finishes a chunk planned before the takeover and can yank the arm back.")
 parser.add_argument("--grip_hold_steps", type=int, default=0,
                     help="Steps (15 Hz) the human keeps gripper control after pressing a button. "
                          "0 (default) = keep it for the rest of the episode. The SpaceMouse "
@@ -362,6 +367,7 @@ def run(env_cfg, agent_cfg):
     alpha = args_cli.alpha
     print(f"[INFO] alpha={alpha:.2f}  (a_exec = {alpha:.2f}*robot + {1 - alpha:.2f}*human)")
     print(f"[INFO] idle gating: {'OFF (always blending)' if args_cli.blend_always else 'ON'}")
+    print(f"[INFO] replan on release: {'ON' if args_cli.replan_on_release else 'off'}")
     print(f"[INFO] image key: {image_key} | replanning every "
           f"{robot.policy.config.n_action_steps} steps")
 
@@ -378,6 +384,7 @@ def run(env_cfg, agent_cfg):
         buffers, frames = [], []
         grip_owner_until = -1
         prev_grip_events = None
+        was_intervening = False
         steps = 0
         success = False
         ended = False           # env reported terminated/truncated (so it already auto-reset)
@@ -388,11 +395,16 @@ def run(env_cfg, agent_cfg):
             rgb = {sub: cam.data.output["rgb"][0] for sub, cam in enabled_views(env_u)}
 
             with torch.inference_mode():
-                a_r = robot.act(build_frame(env_u, image_key)).to(env_u.device).view(-1).float()
+                # Human first: get_actions() updates is_idle, which decides whether the
+                # robot's queued chunk is still valid (--replan_on_release).
                 a_h = human.get_actions(
                     None, env_u.fingertip_midpoint_pos, env_u.fingertip_midpoint_quat,
                     env_u.gripper,
                 )[0].to(env_u.device).float()
+                if (args_cli.replan_on_release and was_intervening
+                        and bool(getattr(human, "is_idle", True))):
+                    robot.reset()
+                a_r = robot.act(build_frame(env_u, image_key)).to(env_u.device).view(-1).float()
 
             # SpaceMouse reports gripper as -1/+1; the env's action space is [0, 1].
             a_h = a_h.clone()
@@ -416,6 +428,7 @@ def run(env_cfg, agent_cfg):
             # override was folded into `intervening`.
             intervening = args_cli.blend_always or not bool(getattr(human, "is_idle", True))
             grip_override = steps < grip_owner_until
+            was_intervening = intervening
             d_t = disagreement(a_h.cpu().numpy(), a_r.cpu().numpy(),
                                env_u.fingertip_midpoint_pos[0].cpu().numpy())
             a_exec = blend(a_r, a_h, alpha, grip_override) if intervening else a_r.clone()
@@ -483,6 +496,7 @@ def run(env_cfg, agent_cfg):
         with open(os.path.join(meta_dir, "infos.json"), "w") as f:
             json.dump({"task": args_cli.task, "checkpoint": args_cli.checkpoint,
                        "alpha": alpha, "blend_always": args_cli.blend_always,
+                       "replan_on_release": args_cli.replan_on_release,
                        "n_action_steps": robot.policy.config.n_action_steps,
                        "seed": args_cli.seed}, f, indent=2)
         with open(os.path.join(meta_dir, "stats.json"), "w") as f:

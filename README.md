@@ -1157,6 +1157,64 @@ python scripts/eval_smolvla.py --checkpoint $CK $COMMON \
   runs disagreed on 72 of 200 episodes: the simulator is not repeatable between runs.
   Why the zero-adjustment run scored higher than both is unresolved.
 
+### Takeover corrections (HG-DAgger-style), aimed at raising success
+
+Every earlier correction round blended (alpha 0.5 / 0.8), so the robot followed the
+operator only partly and the corrections came out as small generic nudges. Here the
+operator takes **full control** while touching the SpaceMouse (`--alpha 0`; idle
+gating still hands control back the moment they let go), and corrects only episodes
+that are going wrong. On those steps the human action *is* the executed action, so the
+label is both the human's intent and self-consistent with the observations.
+
+```bash
+# 1. collect, 10 sessions of 10 against the frozen base (change s1 .. s10)
+python scripts/shared_autonomy.py --two_cam \
+  --checkpoint outputs/train/twocam_v1/checkpoints/020000/pretrained_model \
+  --num_episodes 10 --alpha 0 --replan_on_release --rollout_dir logs/rollouts/tc_to_s1
+
+# 2. convert every session (label = executed action = yours while you steer)
+for i in $(seq 1 10); do
+  python scripts/convert_demos.py --rollout_dir logs/rollouts/tc_to_s$i \
+    --output logs/data/tc_takeover.npy --append --action_prefix exec_action \
+    --views "wrist:camera_wrist/rgb,side:camera_side/rgb"
+done
+
+# 3. pool with ALL 240 base demos, build the dataset
+python scripts/merge_npy_datasets.py --inputs logs/data/tc_takeover.npy logs/data/twocam_demos.npy \
+  --take all all --seed 0 --output logs/data/tc_to_mix.npy
+python scripts/npy_to_lerobot.py --input logs/data/tc_to_mix.npy \
+  --repo_id local/tc_to_mix --root logs/lerobot/tc_to_mix \
+  --images --image_names wrist,side --overwrite
+
+# 4. finetune from the base (same recipe as tc_ft_*, more steps for the larger set)
+lerobot-train \
+  --policy.path=outputs/train/twocam_v1/checkpoints/020000/pretrained_model \
+  --policy.push_to_hub=false \
+  --dataset.repo_id=local/tc_to_mix --dataset.root=logs/lerobot/tc_to_mix \
+  --dataset.video_backend=pyav \
+  --rename_map='{"observation.images.wrist": "observation.images.camera1", "observation.images.side": "observation.images.camera2"}' \
+  --policy.optimizer_lr=2.5e-5 --policy.scheduler_decay_lr=2.5e-6 \
+  --batch_size=64 --steps=6000 --save_freq=6000 --num_workers=12 --seed=1000 \
+  --output_dir=outputs/train/tc_ft_takeover --job_name=tc_ft_takeover --policy.device=cuda
+
+# 5. evaluate the final checkpoint on the usual 200 episodes; compare with the base (142, 142)
+python scripts/eval_smolvla.py \
+  --checkpoint outputs/train/tc_ft_takeover/checkpoints/006000/pretrained_model \
+  --num_episodes 200 --seed 123 --two_cam --debug_grounding --max_steps 150 \
+  --n_action_steps 5 --headless 2>&1 | tee /tmp/eval200_tc_ft_takeover.log
+```
+
+- **Only take over when the episode is going wrong** — hovering off the block,
+  descending beside it, closing on nothing. Leave good episodes alone; untouched steps
+  are labelled with the robot's own action and add little.
+- **Finish the grasp yourself**, lift, then let go: `--replan_on_release` makes the
+  robot replan from where you left the arm instead of finishing a stale chunk.
+- **The gripper stays yours once you press a button**, for the rest of the episode
+  (`--grip_hold_steps 0`). Open it over the bin yourself.
+- Evaluate only the final checkpoint, decided in advance. Two plain base runs scored
+  142 and 142 but flip ~70 episodes between them, so treat a gain under ~15/200 as
+  not shown.
+
 ## HuggingFace Collection
 
 All data, models, and assets are hosted as a [HuggingFace collection](https://huggingface.co/collections/shashuo0104/residual-copilot), auto-downloaded on first use.
