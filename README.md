@@ -1234,9 +1234,49 @@ python scripts/eval_smolvla.py \
   --n_action_steps 5 --headless 2>&1 | tee /tmp/eval200_twocam_v1_010000.log
 ```
 
-Planned arms, each finetuned from `010000` with all 240 base demos: corrections
-labelled `blend` (a_exec), corrections labelled `human` (a_H), and demos only (the
-control that separates "corrections helped" from "more training helped").
+Three arms, each finetuned from `010000` for 6,000 steps: corrections labelled `blend`
+(a_exec) + all 240 demos, corrections labelled `human` (a_H) + all 240 demos, and the
+240 demos alone (the control that separates "corrections helped" from "more training
+helped"). Plan fixed in [docs/RESULTS.md](docs/RESULTS.md) section 18.
+
+```bash
+# build (CPU only): convert per label, pool with ALL 240 demos, LeRobot format
+P=~/Residual_Copilot/.venv/bin/python
+for M in human blend; do
+  for i in $(seq 1 10); do
+    $P scripts/convert_demos.py --rollout_dir logs/rollouts/tc10k_a05_s$i \
+      --output logs/data/tc10k_corr_$M.npy --append --action_prefix $M --angle_threshold 0 \
+      --views "wrist:camera_wrist/rgb,side:camera_side/rgb"
+  done
+  $P scripts/merge_npy_datasets.py --inputs logs/data/tc10k_corr_$M.npy logs/data/twocam_demos.npy \
+    --take all all --seed 0 --output logs/data/tc10k_mix_$M.npy
+  $P scripts/npy_to_lerobot.py --input logs/data/tc10k_mix_$M.npy \
+    --repo_id local/tc10k_mix_$M --root logs/lerobot/tc10k_mix_$M \
+    --images --image_names wrist,side --overwrite
+done
+
+# train the three arms one after another (the control reuses the base's own dataset)
+for ARM in blend human control; do
+  if [ $ARM = control ]; then DS=twocam; OUT=tc10k_demos_only; else DS=tc10k_mix_$ARM; OUT=tc10k_ft_$ARM; fi
+  lerobot-train \
+    --policy.path=outputs/train/twocam_v1/checkpoints/010000/pretrained_model \
+    --policy.push_to_hub=false \
+    --dataset.repo_id=local/$DS --dataset.root=logs/lerobot/$DS --dataset.video_backend=pyav \
+    --rename_map='{"observation.images.wrist": "observation.images.camera1", "observation.images.side": "observation.images.camera2"}' \
+    --policy.optimizer_lr=2.5e-5 --policy.scheduler_decay_lr=2.5e-6 \
+    --batch_size=64 --steps=6000 --save_freq=6000 --num_workers=12 --seed=1000 \
+    --output_dir=outputs/train/$OUT --job_name=$OUT --policy.device=cuda
+done
+
+# evaluate the base and the three arms on the same 200 episodes
+COMMON="--num_episodes 200 --seed 123 --two_cam --debug_grounding --max_steps 150 --n_action_steps 5 --headless"
+python scripts/eval_smolvla.py --checkpoint outputs/train/twocam_v1/checkpoints/010000/pretrained_model \
+  $COMMON 2>&1 | tee /tmp/eval200_twocam_v1_010000.log
+for M in tc10k_ft_blend tc10k_ft_human tc10k_demos_only; do
+  python scripts/eval_smolvla.py --checkpoint outputs/train/$M/checkpoints/006000/pretrained_model \
+    $COMMON 2>&1 | tee /tmp/eval200_$M.log
+done
+```
 
 ## HuggingFace Collection
 

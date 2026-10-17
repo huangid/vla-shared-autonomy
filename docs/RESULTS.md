@@ -327,7 +327,43 @@ What this changes:
   scored above the zero-adjustment run (151 and 155 vs 157), so the learned
   adjustment itself adds nothing measurable.
 
-## 18. Next
+## 18. Weaker base, alpha 0.5 — plan (written BEFORE training or evaluation)
+
+**Goal.** Test whether corrections can *raise* the success rate when the base has
+more room to improve, and re-check the label comparison on a weaker base.
+
+**Base.** `twocam_v1/010000` (half of the 20k training run), chosen before it was
+evaluated. Its own 200-episode score is measured with the protocol below and is the
+reference.
+
+**Corrections.** 100 shared-autonomy episodes at alpha = 0.5 against `010000`
+(`logs/rollouts/tc10k_a05_s1..s10`), 100/100 successful, 6,917 steps, 995 corrective
+(14%).
+
+**Arms** (each finetuned from `010000`, 6,000 steps, batch 64, lr 2.5e-5 decaying to
+2.5e-6, seed 1000; final checkpoint only, no checkpoint selection):
+
+| Arm | Data | Episodes / frames |
+|---|---|---|
+| `tc10k_ft_blend` | corrections labelled `blend` (a_exec) + all 240 demos | 340 / 25,280 |
+| `tc10k_ft_human` | corrections labelled `human` (a_H) + all 240 demos | 340 / 25,280 |
+| `tc10k_demos_only` (control) | the 240 demos alone | 240 / 18,463 |
+
+The human and blend sets have identical observations and differ on 988 steps (3.9%),
+median label gap 5.7 cm — about a third of the contrast of the alpha = 0.8 round
+(13.4%, 11.5 cm). A human-vs-blend difference is therefore not expected to be
+detectable here (as at alpha = 0.5 in the single-camera study).
+
+**Evaluation.** 200 episodes, `--seed 123 --two_cam --n_action_steps 5 --max_steps 150
+--debug_grounding`, paired McNemar exact.
+
+- **Primary:** best-motivated arm `tc10k_ft_blend` vs the control `tc10k_demos_only`
+  (do corrections help beyond the same amount of training on demos?).
+- **Secondary:** each arm vs `010000`; `tc10k_ft_human` vs control; human vs blend.
+- Two plain runs of one model flip ~70 of 200 episodes (section 17), so a difference
+  under ~15/200 is not read as an effect even if a single test crosses p = 0.05.
+
+## 19. Next
 
 1. **Second zero-adjustment run** (`--residual ... --residual_zero`, 200 episodes):
    if it again lands well above 142, the residual code path itself changes behaviour
