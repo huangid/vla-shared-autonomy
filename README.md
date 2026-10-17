@@ -1153,9 +1153,9 @@ python scripts/eval_smolvla.py --checkpoint $CK $COMMON \
 - Orientation and gripper are left to the base.
 - **Result** ([docs/RESULTS.md](docs/RESULTS.md) section 17): neither residual
   changed the success rate measurably — state 151/200, images 155/200, zero adjustment
-  157/200, base 142/200 (state vs base p = 0.35). The zero run itself differed from the
-  original base run on 79 of 200 episodes: the simulator is not repeatable between
-  runs, so single-run differences under ~15/200 are noise.
+  157/200, base 142/200 in each of two runs (state vs base p = 0.35). Two plain base
+  runs disagreed on 72 of 200 episodes: the simulator is not repeatable between runs.
+  Why the zero-adjustment run scored higher than both is unresolved.
 
 ## HuggingFace Collection
 

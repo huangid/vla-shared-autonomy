@@ -199,9 +199,11 @@ the grasp", and applied it, but changed nothing measurable:
 | base + image residual | 155/200 = 77.5% |
 | base + zero adjustment (sanity) | 157/200 = 78.5% |
 
-The sanity run is the base model again, yet it disagreed with the original base run on
-79 of 200 episodes: **the simulator is not repeatable between runs**, so single-run
-differences under ~15/200 are noise. The label findings above are larger than that.
+Two plain re-runs of the base both scored 142/200 yet disagreed on 72 episodes: **the
+simulator is not repeatable between runs**, episode by episode. The zero-adjustment
+run's 157 is unexplained (chance at p = 0.115, or a side effect of the residual code).
+Either way the learned adjustment adds nothing — both residuals scored below the
+zero-adjustment run — and the label findings above are larger than this noise.
 
 ## 5. Things that were wrong, and how they were caught
 

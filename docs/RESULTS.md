@@ -20,8 +20,9 @@ square-on side (480x360, 44 deg down); no front camera.
 **Evaluation protocol.** `--num_episodes 200 --seed 123 --two_cam --n_action_steps 5
 --max_steps 150 --debug_grounding`; every model faces the same 200 layouts, compared
 with the paired McNemar exact test. The simulator is not repeatable between runs
-(section 17): two runs of one model differed on 79 of 200 episodes, so single-run
-differences under ~15/200 are not effects.
+(section 17): two runs of one model differ on 70-80 of 200 episodes. Two plain base
+runs gave the same total (142, 142); a run through the residual code with a zero
+adjustment gave 157, unexplained.
 
 ---
 
@@ -294,11 +295,43 @@ Consequences:
 **Not done:** iterating the residual (collect corrections with it running, retrain);
 more than one run per configuration.
 
+### Addendum: plain base re-run (2026-10-14)
+
+The same base, no `--residual`, same command: **142/200 = 71.0%** — exactly the
+first base run's total, though the two disagreed on 72 of 200 episodes (36 each way).
+Log: `docs/eval_logs/eval200_tc_base_rerun.log`.
+
+| Run of `twocam_v1/020000` | Residual code | Success |
+|---|---|---|
+| Base (section 15) | no | 142/200 |
+| Base re-run | no | 142/200 |
+| Zero adjustment | yes, adds exactly 0 | 157/200 |
+| State residual | yes | 151/200 |
+| Images residual | yes | 155/200 |
+
+Against the re-run: state p = 0.34, images p = 0.18, zero p = 0.115, control p = 0.73,
+`tc_ft_blend` p = 1.0, `tc_ft_human` p = 0.015 (still the one harmful arm). Pooled over
+the three runs of the base without a learned adjustment, 441/600 = 73.5%; across them
+81 episodes always succeed, 4 always fail and 115 vary.
+
+What this changes:
+
+- **Episode outcomes are noisy, totals less so.** Two plain runs flip ~36% of episodes
+  yet land on the same total. Paired tests remain valid; per-episode agreement between
+  runs is far weaker than "same seed" suggests.
+- **Every run that went through the residual code scored higher** (151-157 vs 142,
+  142), the zero-adjustment run most of all. Either that is chance (each comparison
+  p = 0.1-0.3) or the residual code path changes something even when it adds nothing.
+  This is not resolved; a second zero-adjustment run would distinguish the two.
+- **The conclusion about the learned residual stands either way:** neither residual
+  scored above the zero-adjustment run (151 and 155 vs 157), so the learned
+  adjustment itself adds nothing measurable.
+
 ## 18. Next
 
-1. **Re-run the plain base** (no `--residual`, `--seed 123 --two_cam`, 200 episodes)
-   to tell whether the same-day runs of section 17 were high by chance or because
-   something changed between sessions.
+1. **Second zero-adjustment run** (`--residual ... --residual_zero`, 200 episodes):
+   if it again lands well above 142, the residual code path itself changes behaviour
+   and should be traced before anything else is built on it.
 2. **Training-seed replication** of the `tc_ft_human` / `tc_ft_blend` arms: each is
    one training run, and seed variance is not characterised in either study.
 3. **Iterate the residual** (collect corrections with it running, retrain) — the
