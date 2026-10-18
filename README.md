@@ -1241,10 +1241,12 @@ helped"). Plan fixed in [docs/RESULTS.md](docs/RESULTS.md) section 18.
 
 **Videos of the models** — `--video_dir` saves every episode as a captioned MP4 (side |
 wrist view, model name, instruction, outcome). Same `--seed`, so each model plays the
-same layouts. For viewing only; take success rates from runs without it.
+same layouts. For viewing only; take success rates from runs without it. Keep
+`--debug_grounding`: every evaluation used it, and it changes SmolVLA's random-number
+stream, so without it the videos show different (on the first 10 episodes, worse) runs.
 
 ```bash
-LOOK="--num_episodes 10 --seed 7 --two_cam --max_steps 150 --n_action_steps 5 --headless"
+LOOK="--num_episodes 10 --seed 123 --two_cam --debug_grounding --max_steps 150 --n_action_steps 5 --headless"
 python scripts/eval_smolvla.py --checkpoint outputs/train/twocam_v1/checkpoints/010000/pretrained_model \
   $LOOK --video_dir logs/videos/base_010000
 for M in tc10k_ft_blend tc10k_ft_human tc10k_demos_only; do
