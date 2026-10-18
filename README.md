@@ -1255,6 +1255,19 @@ for M in tc10k_ft_blend tc10k_ft_human tc10k_demos_only; do
 done
 ```
 
+**Give the robot your own instructions** — `--interactive` pauses at the start of every
+episode, shows the new random scene, and asks for the instruction in the terminal: a
+colour (`red` / `green` / `blue`), any sentence (*"grab the green one and drop it in the
+bin"*), Enter to keep the scene's own, or `q` to quit. A colour named in the sentence
+becomes the target success is scored on. The models were trained on one sentence
+template, so other phrasings test how far the language understanding stretches.
+
+```bash
+python scripts/eval_smolvla.py \
+  --checkpoint outputs/train/tc10k_ft_human/checkpoints/006000/pretrained_model \
+  --num_episodes 20 --two_cam --debug_grounding --max_steps 150 --n_action_steps 5 --interactive
+```
+
 **Result** (section 19): base 136/200, control 135, blend 150, **human 158** (human vs
 control p = 0.012; blend vs control p = 0.096). The first round in which corrections
 raised the success rate; extra training on demos alone did not.

@@ -92,6 +92,11 @@ parser.add_argument("--ur_aim", type=str, default=None,
 parser.add_argument("--dump_frame", type=str, default=None,
                     help="Save the first sim camera frame to this path (PNG) for visual comparison "
                          "against a training frame.")
+parser.add_argument("--interactive", action="store_true", default=False,
+                    help="Type the instruction yourself at the start of every episode: a colour "
+                         "(red / green / blue), any sentence, Enter to keep the env's own, or q to "
+                         "quit. A colour named in the sentence becomes the target success is scored "
+                         "on. Run WITHOUT --headless to see the scene before typing.")
 parser.add_argument("--video_dir", type=str, default=None,
                     help="Save every episode as an MP4 in this folder (side | wrist views with "
                          "--two_cam, else the front camera), captioned with the model, the "
@@ -238,6 +243,35 @@ def write_video(path, frames, caption, fps=15, hold_s=1.0):
             cv2.putText(f, line, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
         out.append(f)
     imageio.mimwrite(path, out, fps=fps, macro_block_size=8)
+
+
+def ask_instruction(env_u):
+    """Prompt for this episode's instruction; returns False if the user wants to quit.
+
+    The policy reads env_u.instructions[0] every step and success is scored on
+    env_u.target_block_idx[0], so setting both is all an override needs. The model was
+    trained on one template, so paraphrases test language generalisation, not the task.
+    """
+    colors = list(env_u.cfg_task.target_colors)
+    cur = env_u.instructions[0]
+    text = input(f"\n[interactive] scene ready. Instruction? ({'/'.join(colors)}, a sentence, "
+                 f"Enter = \"{cur}\", q = quit): ").strip()
+    if text.lower() in ("q", "quit", "exit"):
+        return False
+    if not text:
+        return True
+    named = [c for c in colors if c in text.lower().replace(",", " ").split()]
+    if text.lower() in colors:
+        named, text = [text.lower()], env_u.cfg_task.instruction_template.format(color=text.lower())
+    if len(named) == 1:
+        env_u.target_block_idx[0] = colors.index(named[0])
+    else:
+        print(f"[interactive] {'no' if not named else 'more than one'} colour named — success is "
+              f"still scored on {colors[int(env_u.target_block_idx[0])]}")
+    env_u.instructions[0] = text
+    print(f"[interactive] instruction: \"{text}\"  (scored on: "
+          f"{colors[int(env_u.target_block_idx[0])]})")
+    return True
 
 
 def refresh_camera(env_u, passes: int = 2):
@@ -451,6 +485,8 @@ def run(env_cfg, agent_cfg):
             # DirectRLEnv auto-resets inside the step that reports `done`, so the
             # camera is stale at the first observation of every episode.
             refresh_camera(env_u)
+            if args_cli.interactive and not ask_instruction(env_u):
+                break
         tgt_pre = int(env_u.target_block_idx[0].item())
         instr = env_u.instructions[0]
         if args_cli.video_dir:
