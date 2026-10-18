@@ -430,7 +430,8 @@ the blue and red blocks ("never lifted the target").*
 Recorded with `eval_smolvla.py --video_dir` on the first 10 evaluation episodes
 (`--seed 123 --two_cam --debug_grounding`, the evaluation's own flags; README has the
 command). Per-model clips are in `logs/videos/<model>/`, 2 x 2 comparisons in
-`logs/videos/compare/episode_NN_<colour>.mp4` (not in git).
+`logs/videos/compare/episode_NN_<colour>.mp4`; the ten comparisons are also in the
+repo at [media/videos/](media/videos/) (per-model clips stay local).
 
 - Successes on these 10: base 8, blend 9, human 7, control 9 — the opposite ordering
   from the 200-episode result for the human arm. They illustrate behaviour; the
