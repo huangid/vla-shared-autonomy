@@ -419,6 +419,26 @@ Paired McNemar exact (first-only / second-only episodes):
   cannot say which mattered.
 - One training seed per arm; one evaluation run per model.
 
+### Videos
+
+![Episode 3, all four models](media/tc10k_compare_ep03.png)
+
+*Episode 3 ("pick up the red block"), same scene for every model — top: base `010000`,
+blend; bottom: human, control. Three hold the red block; the human arm closed between
+the blue and red blocks ("never lifted the target").*
+
+Recorded with `eval_smolvla.py --video_dir` on the first 10 evaluation episodes
+(`--seed 123 --two_cam --debug_grounding`, the evaluation's own flags; README has the
+command). Per-model clips are in `logs/videos/<model>/`, 2 x 2 comparisons in
+`logs/videos/compare/episode_NN_<colour>.mp4` (not in git).
+
+- Successes on these 10: base 8, blend 9, human 7, control 9 — the opposite ordering
+  from the 200-episode result for the human arm. They illustrate behaviour; the
+  200-episode numbers above are the measurement.
+- Without `--debug_grounding` the same 10 episodes went 5/10 for the base, with
+  identical failures for every model: the flag changes SmolVLA's random-number stream.
+  Videos must use the evaluation's exact flags to show comparable runs.
+
 ## 20. Next
 
 1. **Confirm section 19 with a second training seed** of `tc10k_ft_human`,
