@@ -440,12 +440,45 @@ repo at [media/videos/](media/videos/) (per-model clips stay local).
   identical failures for every model: the flag changes SmolVLA's random-number stream.
   Videos must use the evaluation's exact flags to show comparable runs.
 
-## 20. Next
+## 20. 5k base, alpha 0.5 — plan (written BEFORE training or evaluation)
 
-1. **Confirm section 19 with a second training seed** of `tc10k_ft_human`,
-   `tc10k_ft_blend` and `tc10k_demos_only` (`--seed 2000`, same data and recipe):
-   about 2.5 h of training and 6 h of evaluation, no teleop. If the gains hold, the
-   result no longer rests on one training run.
+**Why.** Section 19 is one set of corrections on one base, one training run per arm.
+This round repeats it with fresh corrections on a genuinely earlier checkpoint, which
+tests both whether the gain repeats and whether base strength matters (`010000` was
+barely weaker than `020000`).
+
+**Base.** `twocam_v1/005000`, chosen before it was evaluated; its 200-episode score is
+measured with the protocol below and is the reference.
+
+**Corrections.** 100 shared-autonomy episodes at alpha = 0.5 against `005000`
+(`logs/rollouts/tc5k_a05_s1..s10`), 100/100 successful, 6,947 steps, 1,474 corrective
+(21%; 14% on `010000`). Human and blend sets have identical observations and differ on
+1,455 of 25,310 steps (5.7%), median label gap 6.0 cm.
+
+**Arms** — the section 18 recipe unchanged: finetuned from `005000`, 6,000 steps, batch
+64, lr 2.5e-5 decaying to 2.5e-6, **seed 1000**, final checkpoint only:
+`tc5k_ft_blend` (blend + all 240 demos), `tc5k_ft_human` (human + all 240 demos),
+`tc5k_demos_only` (240 demos alone, the control).
+
+**Evaluation.** 200 episodes, `--seed 123 --two_cam --n_action_steps 5 --max_steps 150
+--debug_grounding`, paired McNemar exact.
+
+- **Primary:** `tc5k_ft_human` vs `tc5k_demos_only` — the comparison that was clearest
+  in section 19, now tested in advance.
+- **Secondary:** `tc5k_ft_blend` vs control; each arm vs `005000`; control vs
+  `005000`; human vs blend.
+- A gain under ~15/200 is not read as an effect.
+
+**Decision rule, fixed now.** If the primary test shows the correction arm clearly
+above the control (p < 0.05 and a gap of at least 15/200), the section 19 finding is
+treated as replicated and the training-seed replication of the `010000` arms is not
+run. Otherwise the seed replication (`--seed 2000`, same data and recipe) is run and
+reported, whatever it shows.
+
+## 21. Next
+
+1. **Run section 20** (5k base); add the `010000` seed replication only if its
+   decision rule says so.
 2. **Second zero-adjustment run** (`--residual ... --residual_zero`, 200 episodes):
    if it again lands well above 142, the residual code path itself changes behaviour
    and should be traced before anything else is built on it.

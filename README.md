@@ -1311,6 +1311,43 @@ for M in tc10k_ft_blend tc10k_ft_human tc10k_demos_only; do
 done
 ```
 
+### 5k base, alpha 0.5 (replication)
+
+Same procedure as the 10k round, with fresh corrections on `twocam_v1/005000`. Plan and
+decision rule in [docs/RESULTS.md](docs/RESULTS.md) section 20.
+
+```bash
+# collect, 10 sessions of 10 (change s1 .. s10)
+python scripts/shared_autonomy.py --two_cam \
+  --checkpoint outputs/train/twocam_v1/checkpoints/005000/pretrained_model \
+  --num_episodes 10 --alpha 0.5 --rollout_dir logs/rollouts/tc5k_a05_s1
+
+# build: as the 10k round with tc10k -> tc5k (logs/data/tc5k_mix_{human,blend}.npy,
+# local/tc5k_mix_{human,blend})
+
+# train the three arms from 005000
+for ARM in blend human control; do
+  if [ $ARM = control ]; then DS=twocam; OUT=tc5k_demos_only; else DS=tc5k_mix_$ARM; OUT=tc5k_ft_$ARM; fi
+  lerobot-train \
+    --policy.path=outputs/train/twocam_v1/checkpoints/005000/pretrained_model \
+    --policy.push_to_hub=false \
+    --dataset.repo_id=local/$DS --dataset.root=logs/lerobot/$DS --dataset.video_backend=pyav \
+    --rename_map='{"observation.images.wrist": "observation.images.camera1", "observation.images.side": "observation.images.camera2"}' \
+    --policy.optimizer_lr=2.5e-5 --policy.scheduler_decay_lr=2.5e-6 \
+    --batch_size=64 --steps=6000 --save_freq=6000 --num_workers=12 --seed=1000 \
+    --output_dir=outputs/train/$OUT --job_name=$OUT --policy.device=cuda
+done
+
+# evaluate the 5k base and the three arms
+COMMON="--num_episodes 200 --seed 123 --two_cam --debug_grounding --max_steps 150 --n_action_steps 5 --headless"
+python scripts/eval_smolvla.py --checkpoint outputs/train/twocam_v1/checkpoints/005000/pretrained_model \
+  $COMMON 2>&1 | tee /tmp/eval200_twocam_v1_005000.log
+for M in tc5k_ft_blend tc5k_ft_human tc5k_demos_only; do
+  python scripts/eval_smolvla.py --checkpoint outputs/train/$M/checkpoints/006000/pretrained_model \
+    $COMMON 2>&1 | tee /tmp/eval200_$M.log
+done
+```
+
 ## HuggingFace Collection
 
 All data, models, and assets are hosted as a [HuggingFace collection](https://huggingface.co/collections/shashuo0104/residual-copilot), auto-downloaded on first use.
