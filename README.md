@@ -1239,6 +1239,20 @@ Three arms, each finetuned from `010000` for 6,000 steps: corrections labelled `
 240 demos alone (the control that separates "corrections helped" from "more training
 helped"). Plan fixed in [docs/RESULTS.md](docs/RESULTS.md) section 18.
 
+**Videos of the models** — `--video_dir` saves every episode as a captioned MP4 (side |
+wrist view, model name, instruction, outcome). Same `--seed`, so each model plays the
+same layouts. For viewing only; take success rates from runs without it.
+
+```bash
+LOOK="--num_episodes 10 --seed 7 --two_cam --max_steps 150 --n_action_steps 5 --headless"
+python scripts/eval_smolvla.py --checkpoint outputs/train/twocam_v1/checkpoints/010000/pretrained_model \
+  $LOOK --video_dir logs/videos/base_010000
+for M in tc10k_ft_blend tc10k_ft_human tc10k_demos_only; do
+  python scripts/eval_smolvla.py --checkpoint outputs/train/$M/checkpoints/006000/pretrained_model \
+    $LOOK --video_dir logs/videos/$M
+done
+```
+
 **Result** (section 19): base 136/200, control 135, blend 150, **human 158** (human vs
 control p = 0.012; blend vs control p = 0.096). The first round in which corrections
 raised the success rate; extra training on demos alone did not.

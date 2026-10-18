@@ -92,12 +92,22 @@ parser.add_argument("--ur_aim", type=str, default=None,
 parser.add_argument("--dump_frame", type=str, default=None,
                     help="Save the first sim camera frame to this path (PNG) for visual comparison "
                          "against a training frame.")
+parser.add_argument("--video_dir", type=str, default=None,
+                    help="Save every episode as an MP4 in this folder (side | wrist views with "
+                         "--two_cam, else the front camera), captioned with the model, the "
+                         "instruction and the outcome. For viewing only: reading the cameras every "
+                         "step may perturb the run, so take success rates from runs without it.")
+parser.add_argument("--video_label", type=str, default=None,
+                    help="Caption for --video_dir videos. Default: the checkpoint's run name and step.")
 AppLauncher.add_app_launcher_args(parser)
 parser.set_defaults(kit_args="--/log/level=error --/log/fileLogLevel=error --/log/outputStreamLevel=error")
 args_cli, hydra_args = parser.parse_known_args()
 sys.argv = [sys.argv[0]] + hydra_args
 args_cli.enable_cameras = True
 
+import os
+
+import numpy as np
 import random as _random
 if args_cli.seed is None:
     args_cli.seed = _random.randint(0, 2**31 - 1)
@@ -199,6 +209,35 @@ def current_rgb(env_u):
     attribute access, so going through .data here gives the current frame.
     """
     return env_u.front_camera.data.output["rgb"][0]
+
+
+def video_frame(env_u):
+    """One (H, W, 3) uint8 frame: side | wrist when both cameras exist, else the front view."""
+    import cv2
+    side = getattr(env_u, "upper_right_camera", None)
+    wrist = getattr(env_u, "wrist_camera", None)
+    if side is not None and wrist is not None:
+        s = side.data.output["rgb"][0].cpu().numpy().astype("uint8")
+        w = wrist.data.output["rgb"][0].cpu().numpy().astype("uint8")
+        w = cv2.resize(w, (round(w.shape[1] * s.shape[0] / w.shape[0]), s.shape[0]))
+        return np.concatenate([s, w], axis=1)
+    return current_rgb(env_u).cpu().numpy().astype("uint8")
+
+
+def write_video(path, frames, caption, fps=15, hold_s=1.0):
+    """Caption every frame and write an MP4; the last frame is held so the outcome is readable."""
+    import cv2
+    import imageio
+    frames = frames + [frames[-1]] * int(fps * hold_s)
+    out = []
+    for f in frames:
+        f = np.ascontiguousarray(f.copy())
+        for i, line in enumerate(caption):
+            org = (8, 22 + 22 * i)
+            cv2.putText(f, line, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3, cv2.LINE_AA)
+            cv2.putText(f, line, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+        out.append(f)
+    imageio.mimwrite(path, out, fps=fps, macro_block_size=8)
 
 
 def refresh_camera(env_u, passes: int = 2):
@@ -387,6 +426,16 @@ def run(env_cfg, agent_cfg):
                for a in VIEW_ATTR_ORDER):
         raise RuntimeError("env has no cameras — not initialised (store_rgb / --enable_cameras).")
 
+    video_label = args_cli.video_label
+    if args_cli.video_dir:
+        os.makedirs(args_cli.video_dir, exist_ok=True)
+        if video_label is None:
+            parts = os.path.normpath(args_cli.checkpoint).split(os.sep)
+            video_label = (f"{parts[parts.index('checkpoints') - 1]} @ {parts[parts.index('checkpoints') + 1]}"
+                           if "checkpoints" in parts else os.path.basename(args_cli.checkpoint))
+        print(f"[INFO] saving episode videos to {args_cli.video_dir} (label: {video_label})")
+    vid_frames = []
+
     results = []
     steps_in_ep = 0
     grounding = []
@@ -404,6 +453,10 @@ def run(env_cfg, agent_cfg):
             refresh_camera(env_u)
         tgt_pre = int(env_u.target_block_idx[0].item())
         instr = env_u.instructions[0]
+        if args_cli.video_dir:
+            if steps_in_ep == 0:
+                vid_frames = []
+            vid_frames.append(video_frame(env_u))
 
         # First observation of an episode: is the policy already aiming at the wrong
         # block, before any closed-loop drift could have accumulated?
@@ -482,6 +535,10 @@ def run(env_cfg, agent_cfg):
             results[-1]["min_xy"] = min_xy
             print(f"[{len(results):3d}/{args_cli.num_episodes}] {color:<5s} "
                   f"{why:<52s} ({steps_in_ep} steps)  closest to target: {min_xy*100:.1f} cm")
+            if args_cli.video_dir and vid_frames:
+                name = f"{len(results):03d}_{color}_{'success' if succ else 'fail'}.mp4"
+                write_video(os.path.join(args_cli.video_dir, name), vid_frames,
+                            [video_label, f"episode {len(results)}: {instr}", why])
             if steps_in_ep >= args_cli.max_steps and not (terminated | truncated)[0].item():
                 # Force-reset an episode that hit the step cap without terminating.
                 # Must be inside inference_mode: the env's buffers were created under
