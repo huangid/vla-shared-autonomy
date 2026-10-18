@@ -205,6 +205,29 @@ run's 157 is unexplained (chance at p = 0.115, or a side effect of the residual 
 Either way the learned adjustment adds nothing — both residuals scored below the
 zero-adjustment run — and the label findings above are larger than this noise.
 
+### Weaker base, alpha 0.5: corrections help for the first time
+
+Corrections collected on `twocam_v1/010000` (68%) at alpha = 0.5, then three arms
+finetuned from it, each with all 240 demos (RESULTS sections 18-19):
+
+| Model | Success |
+|---|---|
+| base `010000` | 136/200 = 68.0% |
+| control (240 demos only, same training) | 135/200 = 67.5% |
+| + corrections, blend label (`a_exec`) | 150/200 = 75.0% |
+| **+ corrections, human label (`a_H`)** | **158/200 = 79.0%** |
+
+Extra training alone changed nothing, while both correction arms improved grasping
+("never lifted" fell from ~58 to ~38). Human vs control p = 0.012 (secondary test;
+p = 0.047 after Bonferroni); the pre-registered primary, blend vs control, gave
+p = 0.096. At this alpha the human label is not harmful — the opposite of alpha = 0.8
+— which fits the dose-response: the more the two labels diverge, the more `a_H` hurts.
+The base turned out barely weaker than `020000` (68% vs 71%), so "weaker base" is not
+the explanation; alpha, the larger demo ballast, longer training and operator practice
+all changed together. One training seed per arm.
+
+---
+
 ## 5. Things that were wrong, and how they were caught
 
 Recorded because they shaped the results, and because each was invisible in the

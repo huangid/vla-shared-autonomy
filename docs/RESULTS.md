@@ -363,18 +363,75 @@ detectable here (as at alpha = 0.5 in the single-camera study).
 - Two plain runs of one model flip ~70 of 200 episodes (section 17), so a difference
   under ~15/200 is not read as an effect even if a single test crosses p = 0.05.
 
-## 19. Next
+## 19. Weaker base, alpha 0.5 — result: corrections improve the policy for the first time
 
-1. **Second zero-adjustment run** (`--residual ... --residual_zero`, 200 episodes):
+Run as planned in section 18 (2026-10-17/18). Logs:
+`docs/eval_logs/eval200_{twocam_v1_010000,tc10k_ft_blend,tc10k_ft_human,tc10k_demos_only}.log`.
+
+| Model | Success | Never lifted | Distractor binned | Within 1.5 cm | Grounding |
+|---|---|---|---|---|---|
+| `twocam_v1/010000` (base) | 136/200 = 68.0% | 57 | 5 | 155 | 80% |
+| `tc10k_demos_only` (control) | 135/200 = 67.5% | 59 | 4 | 149 | 80% |
+| `tc10k_ft_blend` (a_exec) | 150/200 = 75.0% | 37 | 11 | 154 | 82% |
+| **`tc10k_ft_human` (a_H)** | **158/200 = 79.0%** | 38 | 4 | 169 | 76% |
+| *for reference: `twocam_v1/020000`, two runs* | *142, 142* | *53, 55* | | | |
+
+Paired McNemar exact (first-only / second-only episodes):
+
+| Comparison | Discordant | p |
+|---|---|---|
+| **blend vs control (primary)** | 43 / 28 | **0.096** |
+| human vs control | 50 / 27 | **0.012** |
+| human vs base 010000 | 47 / 25 | **0.013** |
+| blend vs base 010000 | 45 / 31 | 0.14 |
+| control vs base 010000 | 42 / 43 | 1.00 |
+| human vs blend | 40 / 32 | 0.41 |
+| human vs base 020000 | 44 / 28 | 0.076 |
+
+**What it shows**
+
+- **Extra training on demos alone does nothing:** the control lands one episode from
+  its starting point (135 vs 136). So whatever the correction arms gained came from
+  the corrections, not from 6,000 more steps.
+- **Both correction arms gained, in the same direction:** blend +15 episodes over the
+  control, human +23. The gain is in grasping — "never lifted the target" falls from
+  57-59 to 37-38.
+- **The pre-registered primary (blend vs control) misses significance (p = 0.096).**
+  Human vs control (p = 0.012) is a secondary test; with four secondary comparisons a
+  Bonferroni correction puts it at p = 0.047. Its 23-episode gap also exceeds the
+  ~15/200 run-to-run noise of section 17, and two plain runs of each base gave
+  matching totals (142/142, 136/135 including the control), so the plain-run totals
+  are steadier than per-episode flips suggest.
+- **The human label is at least as good as the blend here** (158 vs 150, p = 0.41) —
+  the opposite ordering from alpha = 0.8, where a_H harmed. Together with section 12
+  this is a dose-response: at alpha = 0.5 the two labels are close (3.9% of steps,
+  5.7 cm) and a_H does no harm; at alpha = 0.8 they diverge (13.4%, 11.5 cm) and a_H
+  hurts.
+- The human arm also beats the fully trained `020000` base (158 vs 142, p = 0.076),
+  which extra demo training never did.
+
+**What it does not show**
+
+- **"Weaker base" was not the active ingredient:** `010000` scored 68%, barely below
+  `020000`'s 71%. This round differs from section 15 (no gain) in several ways at once
+  — alpha 0.5 vs 0.8, all 240 demos vs 50 as ballast, 6,000 vs 4,000 steps, a
+  different base checkpoint, and an operator with more practice — and the experiment
+  cannot say which mattered.
+- One training seed per arm; one evaluation run per model.
+
+## 20. Next
+
+1. **Confirm section 19 with a second training seed** of `tc10k_ft_human`,
+   `tc10k_ft_blend` and `tc10k_demos_only` (`--seed 2000`, same data and recipe):
+   about 2.5 h of training and 6 h of evaluation, no teleop. If the gains hold, the
+   result no longer rests on one training run.
+2. **Second zero-adjustment run** (`--residual ... --residual_zero`, 200 episodes):
    if it again lands well above 142, the residual code path itself changes behaviour
    and should be traced before anything else is built on it.
-2. **Training-seed replication** of the `tc_ft_human` / `tc_ft_blend` arms: each is
+3. **Training-seed replication** of the `tc_ft_human` / `tc_ft_blend` arms: each is
    one training run, and seed variance is not characterised in either study.
-3. **Iterate the residual** (collect corrections with it running, retrain) — the
+4. **Iterate the residual** (collect corrections with it running, retrain) — the
    DAgger step section 16 left out. Section 17 gives no sign it would help.
-4. **Base-checkpoint sweep** (`twocam_v1/005000`-`015000` were never evaluated).
-5. **Aggregation for accuracy, separate from the label question:** the 100
-   shared-autonomy episodes are 100/100 successful; labelling every step
-   `exec_action` and pooling them with the 240 demos is standard DAgger aggregation.
+5. **Base-checkpoint sweep:** `010000` scored 68% (section 19); `005000` and `015000` were never evaluated.
 6. Smaller: sweep `--n_action_steps`; log block positions in `eval_smolvla.py` to
    test whether failures cluster by table position.

@@ -1215,7 +1215,7 @@ python scripts/eval_smolvla.py \
   142 and 142 but flip ~70 episodes between them, so treat a gain under ~15/200 as
   not shown.
 
-### Weaker base, alpha 0.5 (round in progress)
+### Weaker base, alpha 0.5
 
 Corrections on `twocam_v1/010000` (halfway through base training, chosen before it was
 evaluated) at alpha = 0.5: more failures to correct than at 020000, and both labels
@@ -1238,6 +1238,10 @@ Three arms, each finetuned from `010000` for 6,000 steps: corrections labelled `
 (a_exec) + all 240 demos, corrections labelled `human` (a_H) + all 240 demos, and the
 240 demos alone (the control that separates "corrections helped" from "more training
 helped"). Plan fixed in [docs/RESULTS.md](docs/RESULTS.md) section 18.
+
+**Result** (section 19): base 136/200, control 135, blend 150, **human 158** (human vs
+control p = 0.012; blend vs control p = 0.096). The first round in which corrections
+raised the success rate; extra training on demos alone did not.
 
 ```bash
 # build (CPU only): convert per label, pool with ALL 240 demos, LeRobot format
