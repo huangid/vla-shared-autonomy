@@ -1352,6 +1352,31 @@ for M in tc5k_ft_blend tc5k_ft_human tc5k_demos_only; do
 done
 ```
 
+### Training-seed replication of the 10k arms
+
+Required by the section 20 decision rule after the 5k round failed to replicate: the
+same three 10k arms, same data and recipe, `--seed 2000` instead of 1000.
+
+```bash
+for ARM in blend human control; do
+  if [ $ARM = control ]; then DS=twocam; OUT=tc10k_demos_only_s2; else DS=tc10k_mix_$ARM; OUT=tc10k_ft_${ARM}_s2; fi
+  lerobot-train \
+    --policy.path=outputs/train/twocam_v1/checkpoints/010000/pretrained_model \
+    --policy.push_to_hub=false \
+    --dataset.repo_id=local/$DS --dataset.root=logs/lerobot/$DS --dataset.video_backend=pyav \
+    --rename_map='{"observation.images.wrist": "observation.images.camera1", "observation.images.side": "observation.images.camera2"}' \
+    --policy.optimizer_lr=2.5e-5 --policy.scheduler_decay_lr=2.5e-6 \
+    --batch_size=64 --steps=6000 --save_freq=6000 --num_workers=12 --seed=2000 \
+    --output_dir=outputs/train/$OUT --job_name=$OUT --policy.device=cuda
+done
+
+COMMON="--num_episodes 200 --seed 123 --two_cam --debug_grounding --max_steps 150 --n_action_steps 5 --headless"
+for M in tc10k_ft_blend_s2 tc10k_ft_human_s2 tc10k_demos_only_s2; do
+  python scripts/eval_smolvla.py --checkpoint outputs/train/$M/checkpoints/006000/pretrained_model \
+    $COMMON 2>&1 | tee /tmp/eval200_$M.log
+done
+```
+
 ## HuggingFace Collection
 
 All data, models, and assets are hosted as a [HuggingFace collection](https://huggingface.co/collections/shashuo0104/residual-copilot), auto-downloaded on first use.
