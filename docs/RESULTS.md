@@ -475,10 +475,53 @@ treated as replicated and the training-seed replication of the `010000` arms is 
 run. Otherwise the seed replication (`--seed 2000`, same data and recipe) is run and
 reported, whatever it shows.
 
-## 21. Next
+## 21. 5k base, alpha 0.5 — result: the section 19 gain does not replicate
 
-1. **Run section 20** (5k base); add the `010000` seed replication only if its
-   decision rule says so.
+Run as planned in section 20 (2026-10-18). Logs:
+`docs/eval_logs/eval200_{twocam_v1_005000,tc5k_ft_blend,tc5k_ft_human,tc5k_demos_only}.log`.
+
+| Model | Success | Never lifted | Distractor binned | Within 1.5 cm | Grounding |
+|---|---|---|---|---|---|
+| `twocam_v1/005000` (base) | 100/200 = 50.0% | 73 | 25 | 105 | 72% |
+| **`tc5k_demos_only` (control)** | **119/200 = 59.5%** | 66 | 14 | 129 | 71% |
+| `tc5k_ft_blend` (a_exec) | 113/200 = 56.5% | 70 | 15 | 133 | 72% |
+| `tc5k_ft_human` (a_H) | 107/200 = 53.5% | 68 | 24 | 123 | 78% |
+
+| Comparison | Discordant | p |
+|---|---|---|
+| **human vs control (primary)** | 48 / 60 | **0.29** |
+| blend vs control | 47 / 53 | 0.62 |
+| control vs base 005000 | 62 / 43 | 0.079 |
+| blend vs base 005000 | 50 / 37 | 0.20 |
+| human vs base 005000 | 55 / 48 | 0.55 |
+| human vs blend | 43 / 49 | 0.60 |
+
+**What it shows**
+
+- **The primary test fails:** the human arm is 12 episodes *below* the control
+  (p = 0.29). Neither correction arm beats training on demos alone.
+- **Here extra training helps by itself:** the control gains 19 episodes over its
+  base (p = 0.079), unlike at 10k (135 vs 136). `005000` is genuinely undertrained
+  (50% vs 68% at `010000`, p = 0.0003), and the corrections add nothing on top.
+- **Pooled over both rounds** (stratified McNemar), corrections vs control:
+  human 98 / 87 discordant, p = 0.46; blend 90 / 81, p = 0.54. Across the two
+  replicates there is no evidence that corrections raise success.
+- Human vs blend again shows no difference at alpha = 0.5 (p = 0.60).
+
+**How to read section 19 now.** Its gain (human 158 vs control 135) came from one set
+of corrections and one training run on one base. On a second base, with a fresh set of
+corrections and the same recipe, the effect is absent or reversed. Either section 19
+was a favourable draw (training seed or correction set), or the effect depends on the
+base. The decision rule of section 20 therefore triggers the training-seed replication
+of the `010000` arms, which tells those two apart for the training-seed part.
+
+## 22. Next
+
+1. **Training-seed replication of the `010000` arms** (required by the section 20
+   rule): `tc10k_ft_blend`, `tc10k_ft_human`, `tc10k_demos_only` retrained with
+   `--seed 2000`, same data and recipe, evaluated with the usual protocol. If the gain
+   over the control persists, section 19 is not a training-seed accident; if it
+   vanishes, it was.
 2. **Second zero-adjustment run** (`--residual ... --residual_zero`, 200 episodes):
    if it again lands well above 142, the residual code path itself changes behaviour
    and should be traced before anything else is built on it.

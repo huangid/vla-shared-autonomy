@@ -1316,6 +1316,10 @@ done
 Same procedure as the 10k round, with fresh corrections on `twocam_v1/005000`. Plan and
 decision rule in [docs/RESULTS.md](docs/RESULTS.md) section 20.
 
+**Result** (section 21): base 100/200, control 119, blend 113, human 107 — no gain from
+corrections over the control (human vs control p = 0.29). The 10k gain did not
+replicate; the decision rule calls for a training-seed replication of the 10k arms.
+
 ```bash
 # collect, 10 sessions of 10 (change s1 .. s10)
 python scripts/shared_autonomy.py --two_cam \

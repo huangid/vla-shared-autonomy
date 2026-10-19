@@ -228,6 +228,26 @@ all changed together. One training seed per arm.
 
 ---
 
+### 5k base, alpha 0.5: the gain does not replicate
+
+The same procedure with fresh corrections on `twocam_v1/005000` (50%), pre-registered
+with the human arm vs control as the primary test (RESULTS sections 20-21):
+
+| Model | Success |
+|---|---|
+| base `005000` | 100/200 = 50.0% |
+| **control (240 demos only)** | **119/200 = 59.5%** |
+| + corrections, blend label | 113/200 = 56.5% |
+| + corrections, human label | 107/200 = 53.5% |
+
+Extra training on demos helped this undertrained base on its own; the corrections added
+nothing (human vs control p = 0.29, the wrong direction). Pooled over the 10k and 5k
+rounds, corrections vs control is null (p = 0.46 human, 0.54 blend). The 10k gain is
+therefore not yet a reliable finding; a training-seed replication of those arms is
+next.
+
+---
+
 ## 5. Things that were wrong, and how they were caught
 
 Recorded because they shaped the results, and because each was invisible in the
