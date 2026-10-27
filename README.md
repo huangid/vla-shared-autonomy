@@ -1357,6 +1357,10 @@ done
 Required by the section 20 decision rule after the 5k round failed to replicate: the
 same three 10k arms, same data and recipe, `--seed 2000` instead of 1000.
 
+**Result** (section 22): control 141, blend 146, human 155 (seed 1000: 135, 150, 158).
+The human arm's gain over the control persists at a smaller size (+14; pooled over both
+seeds p = 0.004).
+
 ```bash
 for ARM in blend human control; do
   if [ $ARM = control ]; then DS=twocam; OUT=tc10k_demos_only_s2; else DS=tc10k_mix_$ARM; OUT=tc10k_ft_${ARM}_s2; fi

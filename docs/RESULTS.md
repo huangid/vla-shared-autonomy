@@ -515,13 +515,60 @@ was a favourable draw (training seed or correction set), or the effect depends o
 base. The decision rule of section 20 therefore triggers the training-seed replication
 of the `010000` arms, which tells those two apart for the training-seed part.
 
-## 22. Next
+## 22. 10k training-seed replication — result: the gain survives a second seed
 
-1. **Training-seed replication of the `010000` arms** (required by the section 20
-   rule): `tc10k_ft_blend`, `tc10k_ft_human`, `tc10k_demos_only` retrained with
-   `--seed 2000`, same data and recipe, evaluated with the usual protocol. If the gain
-   over the control persists, section 19 is not a training-seed accident; if it
-   vanishes, it was.
+Required by the section 20 rule. The three `010000` arms retrained with `--seed 2000`
+(same data, recipe and evaluation). Logs: `docs/eval_logs/eval200_tc10k_*_s2.log`.
+
+| Model | seed 1000 (section 19) | **seed 2000** |
+|---|---|---|
+| control (240 demos only) | 135/200 = 67.5% | **141/200 = 70.5%** |
+| + corrections, blend label | 150/200 = 75.0% | **146/200 = 73.0%** |
+| + corrections, human label | 158/200 = 79.0% | **155/200 = 77.5%** |
+| *base `010000`* | *136/200* | |
+
+Seed 2000, paired McNemar:
+
+| Comparison | Discordant | p |
+|---|---|---|
+| human vs control | 47 / 33 | 0.15 |
+| blend vs control | 42 / 37 | 0.65 |
+| human vs base `010000` | 49 / 30 | **0.042** |
+| human vs blend | 43 / 34 | 0.36 |
+| seed 2000 vs seed 1000, same arm | human 35/38, blend 39/43, control 44/38 | 0.82, 0.74, 0.58 |
+
+Pooled over the two seeds (stratified McNemar; analysis chosen after the data, and the
+two comparisons share the same 200 layouts, so this p is optimistic):
+
+| Comparison | Discordant | p |
+|---|---|---|
+| **human vs control, 010000, both seeds** | 97 / 60 | **0.0039** |
+| blend vs control, 010000, both seeds | 85 / 65 | 0.12 |
+| human vs control, both seeds + the 5k round | 145 / 120 | 0.14 |
+
+**What it shows**
+
+- **The human arm reproduces closely:** 158 then 155, and the two seeds of each arm are
+  indistinguishable from each other (p = 0.58-0.82). The training seed moves results
+  by only a few episodes.
+- **The direction holds, the size shrinks:** human over control +23 at seed 1000, +14
+  at seed 2000 (alone p = 0.15). Both seeds together make a training-seed accident an
+  unlikely explanation for the `010000` gain (pooled p = 0.004, with the caveat above).
+  The blend arm's gain is smaller (+15, +5) and not established.
+- **It does not carry over to `005000`** (section 21). With all three runs pooled the
+  human-label gain is not significant (p = 0.14).
+
+**Conclusion on "do corrections raise success?"** On `010000`, corrections labelled
+with the human action gave a modest, reproducible gain over training on demos alone
+(roughly +7 to +11 points). On `005000`, with a different set of corrections, they gave
+none. The experiment cannot say whether the difference is the base or the correction
+set; that would need corrections collected once and trained onto both bases.
+
+## 23. Next
+
+1. **Base vs correction set** (section 22's open question): train the `010000`
+   corrections onto `005000` and the `005000` corrections onto `010000`, same recipe.
+   No teleop; separates "the base matters" from "that correction set was better".
 2. **Second zero-adjustment run** (`--residual ... --residual_zero`, 200 episodes):
    if it again lands well above 142, the residual code path itself changes behaviour
    and should be traced before anything else is built on it.

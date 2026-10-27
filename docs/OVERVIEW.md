@@ -248,6 +248,18 @@ next.
 
 ---
 
+### 10k seed replication: the gain survives a second training run
+
+The three `010000` arms retrained with a different seed (RESULTS section 22): control
+141, blend 146, **human 155** (seed 1000: 135, 150, 158). The human-label arm reproduces
+within a few episodes; its gain over the control shrinks from +23 to +14 but keeps its
+direction (pooled over both seeds p = 0.004, post hoc). So on `010000` the corrections
+gave a modest, reproducible improvement; on `005000` (a different correction set) they
+gave none, and pooled over all three runs the effect is not significant (p = 0.14).
+Whether the base or the correction set explains the difference is open.
+
+---
+
 ## 5. Things that were wrong, and how they were caught
 
 Recorded because they shaped the results, and because each was invisible in the
