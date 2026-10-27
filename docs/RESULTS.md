@@ -607,7 +607,33 @@ their lengths differed (150 vs 63 steps): identical layouts in all four.
   episode-for-episode comparable with any evaluation above. A comparison should
   re-evaluate all of its models after the fix.
 
-## 24. Next
+## 24. Paired re-evaluation of the 10k round — plan (written BEFORE running)
+
+**Why.** "Corrections raise success on `010000`" is the one borderline claim (seed 2000
+alone p = 0.15; both seeds pooled p = 0.004, post hoc) and was tested without layout
+pairing (section 23). Paired layouts make the same comparison more powerful. The
+other conclusions do not depend on pairing and are not re-run.
+
+**Models** (all existing checkpoints, nothing retrained): base `010000`;
+`tc10k_demos_only`, `tc10k_ft_blend`, `tc10k_ft_human` at seeds 1000 and 2000 (`_s2`).
+
+**Protocol.** The usual one (`--num_episodes 200 --seed 123 --two_cam
+--debug_grounding --max_steps 150 --n_action_steps 5`) with the section 23 fix, so
+every model faces the same 200 layouts. Logs `docs/eval_logs/eval200p_<model>.log`.
+Before analysis, confirm pairing held by checking that the grounding lines' target
+distances (`d_target` of the first plan) agree closely across models for each episode.
+
+**Primary test (fixed now):** human vs control, both seeds pooled, paired stratified
+McNemar exact (human seed s vs control seed s, discordant counts summed over s).
+Significance at p < 0.05.
+
+**Secondary:** blend vs control (pooled the same way); human vs blend; each arm vs the
+base; each seed separately.
+
+**Reporting.** These results supersede the unpaired numbers of sections 19 and 22 for
+the 10k comparison; both are kept and reported.
+
+## 25. Next
 
 1. **Base vs correction set** (section 22's open question): train the `010000`
    corrections onto `005000` and the `005000` corrections onto `010000`, same recipe.
