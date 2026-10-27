@@ -917,15 +917,27 @@ class XArmEnv(DirectRLEnv):
 
         If ``cfg_task.layout_seed`` is set, all draws come from a generator
         re-seeded with it on every call, so every episode gets the *same* layout.
+
+        Otherwise draws come from a generator of the env's own, seeded once from
+        ``cfg.seed``. Drawing from the global CUDA RNG instead (as before) shared the
+        stream with the policy's sampling noise, so two policies run with the same
+        seed saw different layouts from the first episode whose length differed.
         """
         n = len(env_ids)
         t = self.cfg_task
         dev = self.device
 
-        gen = None
         if getattr(t, "layout_seed", None) is not None:
             gen = torch.Generator(device=dev)
             gen.manual_seed(int(t.layout_seed))
+        else:
+            if getattr(self, "_layout_gen", None) is None:
+                self._layout_gen = torch.Generator(device=dev)
+                seed = self.cfg.seed
+                if seed is None:
+                    seed = int(torch.randint(0, 2**31 - 1, (1,)).item())
+                self._layout_gen.manual_seed(int(seed) + 7919)   # offset: a stream distinct from torch.manual_seed(seed)
+            gen = self._layout_gen
 
         lo = torch.tensor([t.block_x_range[0], t.block_y_range[0]], device=dev)
         span = torch.tensor(

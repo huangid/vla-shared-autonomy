@@ -20,9 +20,10 @@ square-on side (480x360, 44 deg down); no front camera.
 **Evaluation protocol.** `--num_episodes 200 --seed 123 --two_cam --n_action_steps 5
 --max_steps 150 --debug_grounding`; every model faces the same 200 layouts, compared
 with the paired McNemar exact test. The simulator is not repeatable between runs
-(section 17): two runs of one model differ on 70-80 of 200 episodes. Two plain base
-runs gave the same total (142, 142); a run through the residual code with a zero
-adjustment gave 157, unexplained.
+(section 17): two runs of one model differ on 70-80 of 200 episodes. **Section 23:
+until 2026-10-27 the "same 200 episodes" shared only the target-colour sequence — block
+layouts diverged between models after the first episode or two.** McNemar p-values stay
+valid; the comparisons are effectively unpaired.
 
 ---
 
@@ -423,9 +424,9 @@ Paired McNemar exact (first-only / second-only episodes):
 
 ![Episode 3, all four models](media/tc10k_compare_ep03.png)
 
-*Episode 3 ("pick up the red block"), same scene for every model — top: base `010000`,
-blend; bottom: human, control. Three hold the red block; the human arm closed between
-the blue and red blocks ("never lifted the target").*
+*Episode 3 ("pick up the red block") — top: base `010000`, blend; bottom: human,
+control. **Not the same scene for every model:** see section 23; the layouts here
+already differ between models.*
 
 Recorded with `eval_smolvla.py --video_dir` on the first 10 evaluation episodes
 (`--seed 123 --two_cam --debug_grounding`, the evaluation's own flags; README has the
@@ -537,8 +538,9 @@ Seed 2000, paired McNemar:
 | human vs blend | 43 / 34 | 0.36 |
 | seed 2000 vs seed 1000, same arm | human 35/38, blend 39/43, control 44/38 | 0.82, 0.74, 0.58 |
 
-Pooled over the two seeds (stratified McNemar; analysis chosen after the data, and the
-two comparisons share the same 200 layouts, so this p is optimistic):
+Pooled over the two seeds (stratified McNemar; analysis chosen after the data. Section
+23 shows the runs did not in fact share layouts, so the two comparisons are independent
+samples and that earlier overlap caveat does not apply; the post hoc one does):
 
 | Comparison | Discordant | p |
 |---|---|---|
@@ -564,7 +566,48 @@ with the human action gave a modest, reproducible gain over training on demos al
 none. The experiment cannot say whether the difference is the base or the correction
 set; that would need corrections collected once and trained onto both bases.
 
-## 23. Next
+## 23. Evaluation layouts were not paired across models (found 2026-10-27)
+
+**Found from the videos:** with `--seed 123`, episodes 1-2 showed the same block layout
+for every model, but from episode 3 on the layouts differed, while the target colours
+still matched.
+
+**Cause.** `_sample_block_layout` drew block positions from the global CUDA random
+stream, the same stream SmolVLA draws its flow-matching noise from at every planning
+step. Models whose episodes differ in length consume different amounts of that stream,
+so from the first such episode on, each model is dealt a different layout sequence.
+Target colours follow a fixed rotation and were unaffected, which is why the earlier
+check (colour sequence only) passed. The single-camera branch has the same code.
+
+**Fix** (`xarm_env.py`, this commit): layouts come from a generator of the env's own,
+seeded once from `--seed`. Checked with two models over 4 episodes, including one where
+their lengths differed (150 vs 63 steps): identical layouts in all four.
+
+![Layouts after the fix: base vs human arm, episodes 1-4](media/layout_fix_check.png)
+
+**What it means for the results above (sections 9-22 and the single-camera study):**
+
+- **Every model was still evaluated on 200 random layouts with the same balanced
+  colour sequence**, so each success rate is an unbiased estimate.
+- **The McNemar p-values remain valid.** With unpaired outcomes, under "no difference"
+  each discordant episode is still equally likely to favour either model, so the exact
+  test holds; it simply gets none of the extra power pairing would have given. No
+  conclusion depended on pairing.
+- **It explains three earlier puzzles:** (1) two runs of one model "flipping" 70-80 of
+  200 episodes — about what independent layouts predict (2·p·(1-p)·200 ≈ 80 at
+  p = 0.72), not mainly simulator non-determinism; (2) the zero-adjustment residual run
+  at 157 vs the base's 142 (section 17) — two independent samples, a 1.7-standard-error
+  gap; (3) the videos without `--debug_grounding` going 5/10 instead of 9/10 — that flag
+  changes the stream, so they were different scenes.
+- Some true run-to-run non-determinism remains (the zero-adjustment run's first plan
+  differed by 3 mm before any layout could), but it is small.
+- **Wording to correct:** earlier sections say models faced "the same 200 episodes" or
+  "identical layouts". Read that as "the same 200-episode colour sequence".
+- **Evaluations from now on are paired**, but use a new layout stream, so they are not
+  episode-for-episode comparable with any evaluation above. A comparison should
+  re-evaluate all of its models after the fix.
+
+## 24. Next
 
 1. **Base vs correction set** (section 22's open question): train the `010000`
    corrections onto `005000` and the `005000` corrections onto `010000`, same recipe.

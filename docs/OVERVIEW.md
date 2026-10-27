@@ -93,8 +93,11 @@ Defined in `source/xarm_assembly_env/assembly_tasks_cfg.py` (`RandomBlock`) on t
 ### Evaluation protocol
 
 `--num_episodes N --seed 123 --n_action_steps 5 --max_steps 150 --debug_grounding`.
-The seed fixes the episode sequence so every model faces identical layouts, which
-makes comparisons **paired** (McNemar exact test). `--n_action_steps 5` matters: the
+The seed fixes the episode sequence, compared with the McNemar exact test. **Until
+2026-10-27 only the target-colour sequence was actually shared:** block layouts drew
+from the same random stream as SmolVLA's sampling noise and diverged between models
+after the first episode or two (RESULTS section 23). The tests stay valid but were
+effectively unpaired; layouts now come from their own seeded generator. `--n_action_steps 5` matters: the
 checkpoint default of 50 runs 3.3 s open-loop and cannot react to a drifting grasp.
 
 Reported per run: overall and per-colour success, failure-mode breakdown, closest
