@@ -1361,6 +1361,11 @@ same three 10k arms, same data and recipe, `--seed 2000` instead of 1000.
 The human arm's gain over the control persists at a smaller size (+14; pooled over both
 seeds p = 0.004).
 
+**Paired re-evaluation** (section 25, identical layouts after the section 23 fix):
+base 130; control 140 / 136; blend 148 / 149; human 137 / 153 (seeds 1000 / 2000).
+Human vs control, both seeds: p = 0.18 (pre-registered primary, not significant); blend
+vs control p = 0.026 (secondary). This supersedes the unpaired numbers.
+
 ```bash
 for ARM in blend human control; do
   if [ $ARM = control ]; then DS=twocam; OUT=tc10k_demos_only_s2; else DS=tc10k_mix_$ARM; OUT=tc10k_ft_${ARM}_s2; fi

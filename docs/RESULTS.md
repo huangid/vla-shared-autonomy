@@ -633,7 +633,59 @@ base; each seed separately.
 **Reporting.** These results supersede the unpaired numbers of sections 19 and 22 for
 the 10k comparison; both are kept and reported.
 
-## 25. Next
+## 25. Paired re-evaluation of the 10k round — result: the human-label gain does not hold up
+
+Run as planned in section 24 (2026-10-27/28), all seven models on the same 200 layouts.
+Logs: `docs/eval_logs/eval200p_*.log`.
+
+**Pairing held.** Colour sequences match, and discordance between models collapsed:
+the two control seeds now disagree on 30 episodes (82 when unpaired), human vs control
+at seed 1000 on 47 (77). The pre-planned check on first-plan target distance was a poor
+choice — it depends on each model's plan, not just the layout — and showed no change;
+the discordance drop is the evidence that the layouts match.
+
+| Model | seed 1000 | seed 2000 | *unpaired (19, 22)* |
+|---|---|---|---|
+| base `010000` | 130/200 = 65.0% | | *136* |
+| control (240 demos) | 140 = 70.0% | 136 = 68.0% | *135, 141* |
+| + corrections, blend label | **148 = 74.0%** | **149 = 74.5%** | *150, 146* |
+| + corrections, human label | 137 = 68.5% | 153 = 76.5% | *158, 155* |
+
+| Comparison (paired McNemar) | Discordant | p |
+|---|---|---|
+| **human vs control, both seeds (primary)** | 55 / 41 | **0.18** |
+| blend vs control, both seeds | 51 / 30 | **0.026** |
+| human vs blend, both seeds | 42 / 49 | 0.53 |
+| human vs control: seed 1000 / seed 2000 | 22/25, 33/16 | 0.77, 0.021 |
+| blend vs control: seed 1000 / seed 2000 | 25/17, 26/13 | 0.28, 0.053 |
+| blend vs base: seed 1000 / seed 2000 | 35/17, 36/17 | 0.018, 0.013 |
+| human vs base: seed 1000 / seed 2000 | 33/26, 41/18 | 0.44, 0.0038 |
+| control vs base: seed 1000 / seed 2000 | 24/14, 23/17 | 0.14, 0.43 |
+| human seed 1000 vs seed 2000 | 16 / 32 | 0.029 |
+
+**What it shows**
+
+- **The pre-registered primary fails:** human vs control, both seeds, p = 0.18. The
+  human arm is inconsistent across training seeds (137 vs 153, p = 0.029 between
+  them), and its seed-1000 score of 158 in section 19 does not reappear (137 on the
+  paired layouts).
+- **The blend arm is the consistent one:** 148 and 149, both seeds above their
+  controls (+8, +13) and above the base (p = 0.018, 0.013). Pooled vs control
+  p = 0.026 — a secondary test, and not significant after correcting for the
+  secondary comparisons, so suggestive rather than established.
+- **Human vs blend: no difference** (p = 0.53), consistent with every alpha = 0.5
+  comparison so far.
+- Extra demo training alone gives a small, non-significant gain over the base (+6,
+  +10).
+
+**Revised conclusion on "do corrections raise success on `010000`?"** Not
+established. Training on the corrections with the executed (blend) label gave a small
+gain that repeated across both training seeds (about +5 points over the control,
++9 over the base); the human label did not repeat. Sections 19 and 22 overstated the
+human-label result: unpaired, single evaluations of one training run, which this
+paired re-evaluation supersedes.
+
+## 26. Next
 
 1. **Base vs correction set** (section 22's open question): train the `010000`
    corrections onto `005000` and the `005000` corrections onto `010000`, same recipe.

@@ -263,6 +263,26 @@ Whether the base or the correction set explains the difference is open.
 
 ---
 
+### Paired re-evaluation: the 10k human-label gain does not hold up
+
+After fixing layout pairing (RESULTS section 23), all seven 10k models were
+re-evaluated on identical layouts (section 25):
+
+| | seed 1000 | seed 2000 |
+|---|---|---|
+| base `010000` | 130 | |
+| control | 140 | 136 |
+| blend label | **148** | **149** |
+| human label | 137 | 153 |
+
+The pre-registered test (human vs control, both seeds) gives p = 0.18. The blend arm is
+the consistent one (+8 and +13 over its controls; pooled p = 0.026, secondary). So the
+earlier "human label +23" was partly an evaluation draw. Overall: corrections gave at
+most a small gain on this base, more reliably with the executed (blend) label, and the
+label choice still makes no detectable difference at alpha = 0.5.
+
+---
+
 ## 5. Things that were wrong, and how they were caught
 
 Recorded because they shaped the results, and because each was invisible in the
