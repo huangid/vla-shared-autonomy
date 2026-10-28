@@ -695,7 +695,36 @@ gain that repeated across both training seeds (about +5 points over the control,
 human-label result: unpaired, single evaluations of one training run, which this
 paired re-evaluation supersedes.
 
-## 26. Next
+## 26. 10k base, alpha 0.8 — plan (written BEFORE collecting any data)
+
+**Why.** On `010000` at alpha = 0.5, the human and blend labels did not differ
+(section 25). At alpha = 0.8 the human label hurt, but those rounds used other bases
+and recipes (sections 12, 15). Collecting at alpha = 0.8 on `010000` with the section 25
+recipe isolates alpha: same base, same demos, same training, same 200 paired layouts.
+
+**Corrections.** 100 shared-autonomy episodes at alpha = 0.8 on `010000`
+(`logs/rollouts/tc10k_a08_s1..s10`), all kept, corrected as in the alpha = 0.5 round.
+
+**Arms.** `tc10k08_ft_blend`, `tc10k08_ft_human`: corrections + all 240 demos, finetuned
+from `010000`, 6,000 steps, batch 64, lr 2.5e-5 to 2.5e-6, at training seeds 1000 and
+2000 (`_s2`). Final checkpoints only. The base (130) and the demos-only controls (140,
+136) are alpha-independent and reused from section 25.
+
+**Evaluation.** 200 episodes, `--seed 123 --two_cam --debug_grounding --max_steps 150
+--n_action_steps 5`, after the section 23 fix, so paired with every `eval200p_` log.
+Paired McNemar exact; "both seeds" means discordant counts summed over seed 1000 and
+seed 2000 comparisons.
+
+- **Primary:** human vs blend at alpha = 0.8, both seeds. The alpha = 0.8 rounds
+  predict the human label is worse; section 25 found no difference at alpha = 0.5 on
+  this base.
+- **Secondary:** each alpha = 0.8 arm vs its seed's control; alpha = 0.8 vs alpha = 0.5
+  for the same label (blend vs blend, human vs human), both seeds — does alpha change
+  what corrections are worth?
+- The same-label alpha comparisons need about a 10-point difference to be detectable;
+  a null there is weak evidence of no alpha effect.
+
+## 27. Next
 
 1. **Base vs correction set** (section 22's open question): train the `010000`
    corrections onto `005000` and the `005000` corrections onto `010000`, same recipe.
