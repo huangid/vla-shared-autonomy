@@ -1386,6 +1386,87 @@ for M in tc10k_ft_blend_s2 tc10k_ft_human_s2 tc10k_demos_only_s2; do
 done
 ```
 
+### Paired evaluation (layouts matched across models)
+
+Until 2026-10-27, models evaluated with the same `--seed` saw the same target colours but
+**different block layouts** after the first episode or two: layouts drew from the same
+random stream as SmolVLA's sampling noise ([docs/RESULTS.md](docs/RESULTS.md) section
+23). Layouts now come from their own generator, so **every evaluation with `--seed 123`
+faces the same 200 layouts**, and a new model can be compared episode-for-episode with
+any model already evaluated after the fix. Paired logs are named `eval200p_*.log`.
+
+```bash
+COMMON="--num_episodes 200 --seed 123 --two_cam --debug_grounding --max_steps 150 --n_action_steps 5 --headless"
+python scripts/eval_smolvla.py --checkpoint outputs/train/twocam_v1/checkpoints/010000/pretrained_model \
+  $COMMON 2>&1 | tee docs/eval_logs/eval200p_twocam_v1_010000.log
+for M in tc10k_demos_only tc10k_ft_blend tc10k_ft_human tc10k_demos_only_s2 tc10k_ft_blend_s2 tc10k_ft_human_s2; do
+  python scripts/eval_smolvla.py --checkpoint outputs/train/$M/checkpoints/006000/pretrained_model \
+    $COMMON 2>&1 | tee docs/eval_logs/eval200p_$M.log
+done
+```
+
+**Result** (section 25): base 130; control 140 / 136; blend 148 / 149; human 137 / 153
+(seeds 1000 / 2000). Human vs control, both seeds, p = 0.18; blend vs control p = 0.026.
+Evaluations before the fix (`eval200_*.log`) remain valid but unpaired.
+
+### 10k base, alpha 0.8 (same base, only alpha changes)
+
+Corrections on `twocam_v1/010000` at alpha = 0.8, to compare with the alpha = 0.5 round
+on the same base, recipe and (paired) layouts. The base and the demos-only controls are
+the same for any alpha and are already evaluated, so only the four correction arms are
+new.
+
+```bash
+# collect, 10 sessions of 10 (change s1 .. s10)
+python scripts/shared_autonomy.py --two_cam \
+  --checkpoint outputs/train/twocam_v1/checkpoints/010000/pretrained_model \
+  --num_episodes 10 --alpha 0.8 --rollout_dir logs/rollouts/tc10k_a08_s1
+
+# build (CPU only)
+P=~/Residual_Copilot/.venv/bin/python
+for M in human blend; do
+  for i in $(seq 1 10); do
+    $P scripts/convert_demos.py --rollout_dir logs/rollouts/tc10k_a08_s$i \
+      --output logs/data/tc10k08_corr_$M.npy --append --action_prefix $M --angle_threshold 0 \
+      --views "wrist:camera_wrist/rgb,side:camera_side/rgb"
+  done
+  $P scripts/merge_npy_datasets.py --inputs logs/data/tc10k08_corr_$M.npy logs/data/twocam_demos.npy \
+    --take all all --seed 0 --output logs/data/tc10k08_mix_$M.npy
+  $P scripts/npy_to_lerobot.py --input logs/data/tc10k08_mix_$M.npy \
+    --repo_id local/tc10k08_mix_$M --root logs/lerobot/tc10k08_mix_$M \
+    --images --image_names wrist,side --overwrite
+done
+
+# train blend and human at training seeds 1000 and 2000 (as the alpha 0.5 arms)
+for SEED in 1000 2000; do
+  SUF=$([ $SEED = 2000 ] && echo _s2)
+  for ARM in blend human; do
+    OUT=tc10k08_ft_${ARM}${SUF}
+    lerobot-train \
+      --policy.path=outputs/train/twocam_v1/checkpoints/010000/pretrained_model \
+      --policy.push_to_hub=false \
+      --dataset.repo_id=local/tc10k08_mix_$ARM --dataset.root=logs/lerobot/tc10k08_mix_$ARM \
+      --dataset.video_backend=pyav \
+      --rename_map='{"observation.images.wrist": "observation.images.camera1", "observation.images.side": "observation.images.camera2"}' \
+      --policy.optimizer_lr=2.5e-5 --policy.scheduler_decay_lr=2.5e-6 \
+      --batch_size=64 --steps=6000 --save_freq=6000 --num_workers=12 --seed=$SEED \
+      --output_dir=outputs/train/$OUT --job_name=$OUT --policy.device=cuda
+  done
+done
+
+# evaluate the four arms (paired with the existing eval200p_ logs)
+COMMON="--num_episodes 200 --seed 123 --two_cam --debug_grounding --max_steps 150 --n_action_steps 5 --headless"
+for M in tc10k08_ft_blend tc10k08_ft_human tc10k08_ft_blend_s2 tc10k08_ft_human_s2; do
+  python scripts/eval_smolvla.py --checkpoint outputs/train/$M/checkpoints/006000/pretrained_model \
+    $COMMON 2>&1 | tee docs/eval_logs/eval200p_$M.log
+done
+```
+
+- At alpha = 0.8 the operator has 20% authority: the arm moves only a little toward
+  the SpaceMouse. Correct as you naturally would.
+- Disk: recordings + datasets + four models need about 7-8 GB; delete each model's
+  `training_state/` after it is backed up (it is only needed to resume training).
+
 ## HuggingFace Collection
 
 All data, models, and assets are hosted as a [HuggingFace collection](https://huggingface.co/collections/shashuo0104/residual-copilot), auto-downloaded on first use.
