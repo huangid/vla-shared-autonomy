@@ -366,6 +366,11 @@ detectable here (as at alpha = 0.5 in the single-camera study).
 
 ## 19. Weaker base, alpha 0.5 — result: corrections improve the policy for the first time
 
+> **Superseded by section 25.** These numbers come from evaluations whose block layouts
+> differed between models (section 23). The paired re-evaluation in section 25 does not
+> confirm the human-label gain reported here (human vs control, both seeds: p = 0.18);
+> only the blend label shows a consistent gain. Kept as the record of what was run.
+
 Run as planned in section 18 (2026-10-17/18). Logs:
 `docs/eval_logs/eval200_{twocam_v1_010000,tc10k_ft_blend,tc10k_ft_human,tc10k_demos_only}.log`.
 
@@ -517,6 +522,11 @@ base. The decision rule of section 20 therefore triggers the training-seed repli
 of the `010000` arms, which tells those two apart for the training-seed part.
 
 ## 22. 10k training-seed replication — result: the gain survives a second seed
+
+> **Superseded by section 25.** These numbers come from evaluations whose block layouts
+> differed between models (section 23). The paired re-evaluation in section 25 does not
+> confirm the human-label gain reported here (human vs control, both seeds: p = 0.18);
+> only the blend label shows a consistent gain. Kept as the record of what was run.
 
 Required by the section 20 rule. The three `010000` arms retrained with `--seed 2000`
 (same data, recipe and evaluation). Logs: `docs/eval_logs/eval200_tc10k_*_s2.log`.
