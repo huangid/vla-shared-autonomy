@@ -427,24 +427,23 @@ Paired McNemar exact (first-only / second-only episodes):
 
 ### Videos
 
-![Episode 3, all four models](media/tc10k_compare_ep03.png)
+![Episode 2, all four models](media/tc10k_compare_ep02.png)
 
-*Episode 3 ("pick up the red block") — top: base `010000`, blend; bottom: human,
-control. **Not the same scene for every model:** see section 23; the layouts here
-already differ between models.*
+*Episode 2 ("pick up the blue block"), same scene for all four models, seed-1000 arms,
+last frames — top: base `010000`, blend; bottom: human, control. Only the blend arm
+succeeded here.*
 
-Recorded with `eval_smolvla.py --video_dir` on the first 10 evaluation episodes
-(`--seed 123 --two_cam --debug_grounding`, the evaluation's own flags; README has the
-command). Per-model clips are in `logs/videos/<model>/`, 2 x 2 comparisons in
-`logs/videos/compare/episode_NN_<colour>.mp4`; the ten comparisons are also in the
-repo at [media/videos/](media/videos/) (per-model clips stay local).
+Re-recorded 2026-10-28 after the section 23 fix: the first 10 episodes of the paired
+evaluation, every model on identical layouts (first frames compared; see
+[media/first_frames_after_fix.png](media/first_frames_after_fix.png)). Command in the
+README. Per-model clips are in `logs/videos/<model>/`; the ten 2 x 2 comparisons are in
+[media/videos/](media/videos/).
 
-- Successes on these 10: base 8, blend 9, human 7, control 9 — the opposite ordering
-  from the 200-episode result for the human arm. They illustrate behaviour; the
-  200-episode numbers above are the measurement.
-- Without `--debug_grounding` the same 10 episodes went 5/10 for the base, with
-  identical failures for every model: the flag changes SmolVLA's random-number stream.
-  Videos must use the evaluation's exact flags to show comparable runs.
+- Successes on these 10: base 7, blend 8, human 7, control 7. They illustrate behaviour;
+  section 25 is the measurement.
+- The first recording (before the fix) showed different layouts between models from
+  episode 3 on. Its 5/10 without `--debug_grounding` was also a layout effect (section
+  23), not a sign that the flag helps.
 
 ## 20. 5k base, alpha 0.5 — plan (written BEFORE training or evaluation)
 

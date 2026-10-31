@@ -1243,7 +1243,7 @@ helped"). Plan fixed in [docs/RESULTS.md](docs/RESULTS.md) section 18.
 wrist view, model name, instruction, outcome). Same `--seed`, so each model plays the
 same layouts. For viewing only; take success rates from runs without it. Keep
 `--debug_grounding`: every evaluation used it, and it changes SmolVLA's random-number
-stream, so without it the videos show different (on the first 10 episodes, worse) runs.
+stream, so the clips then match how the evaluations ran.
 
 ```bash
 LOOK="--num_episodes 10 --seed 123 --two_cam --debug_grounding --max_steps 150 --n_action_steps 5 --headless"
