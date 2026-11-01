@@ -704,6 +704,11 @@ recipe isolates alpha: same base, same demos, same training, same 200 paired lay
 **Corrections.** 100 shared-autonomy episodes at alpha = 0.8 on `010000`
 (`logs/rollouts/tc10k_a08_s1..s10`), all kept, corrected as in the alpha = 0.5 round.
 
+*Collected (added after collection, before training):* 100/100 successful, 6,949 steps,
+2,629 corrective (38%, against 995 of 6,917, or 14%, at alpha = 0.5). With the 240 demos:
+340 episodes, 25,312 frames. The operator corrected about 2.6 times as many steps at
+alpha = 0.8, so any alpha effect here is mixed with the amount of correction.
+
 **Arms.** `tc10k08_ft_blend`, `tc10k08_ft_human`: corrections + all 240 demos, finetuned
 from `010000`, 6,000 steps, batch 64, lr 2.5e-5 to 2.5e-6, at training seeds 1000 and
 2000 (`_s2`). Final checkpoints only. The base (130) and the demos-only controls (140,
