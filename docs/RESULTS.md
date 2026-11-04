@@ -771,7 +771,7 @@ First-chunk grounding: blend 82%, 79%; human 78%, 74%.
 - **The earlier alpha = 0.8 harm did not appear here**, although the label contrast is
   similar. Those rounds differed in base (`025000` single-camera, `020000` two-camera)
   and in recipe (50-100 ballast demos, so corrections were a much larger share of training,
-  against all 240 demos and 6,000 steps with a decaying learning rate here). The
+  against all 240 demos and 6,000 steps here; the learning-rate schedule is the same). The
   likeliest reading is that the human label's harm depends on the recipe: here the
   corrections are 27% of the frames, diluted by 240 demos. That is a
   hypothesis; this round does not test it.
@@ -789,7 +789,7 @@ First-chunk grounding: blend 82%, 79%; human 78%, 74%.
 |---|---|---|---|
 | Base | v5 `025000` (52%) | `twocam_v1/020000` (71%) | `twocam_v1/010000` (65%) |
 | Demos beside the corrections | 100 | 50 | 240 |
-| Fine-tuning steps | | 4,000 | 6,000, lr decaying |
+| Fine-tuning steps | | 4,000 | 6,000 |
 | Label contrast (median gap) | 10.9 cm | 11.5 cm | 10.7 cm |
 | Human / blend success | 34.0% / 53.0% | 59.5% / 70.5% | 69.5%, 73.0% / 73.5%, 70.5% |
 | p (human vs blend) | 0.00018 | 0.037 | 0.85 |
@@ -801,19 +801,60 @@ them they carry about three quarters of the frames and pull the two arms togethe
 base and the step count also changed, so this round cannot separate them; section 28
 item 1 does.
 
+**Correction quality (added 2026-11-04, offline).** Checked whether the earlier rounds'
+corrections were poorer. On corrective steps of the approach (before the gripper first
+closes, more than 2 cm from the target), the operator's push direction against the
+direction to the target block:
+
+| Round | Push toward target (median cosine) | Wrong way | Push size (median) | Base's own direction (median cosine) |
+|---|---|---|---|---|
+| single-camera alpha 0.8 (human hurt) | 0.91 | 2% | 14.7 cm | 0.48 |
+| two-camera alpha 0.8 (human hurt) | 0.91 | 2% | 15.5 cm | 0.60 |
+| **10k alpha 0.8 (no harm)** | **0.94** | **7%** | **15.5 cm** | **0.81** |
+| 10k alpha 0.5 | 0.89 | 6% | 15.1 cm | 0.76 |
+| 5k alpha 0.5 | 0.88 | 9% | 15.0 cm | 0.62 |
+
+The pushes were equally well aimed and equally large (about 15 cm past the arm, the
+overshoot that makes `a_H` a poor position target) in every round, so there is no sign
+that the earlier corrections were worse. What differs is the base: the earlier bases
+were often heading the wrong way (0.48, 0.60), `010000` mostly the right way (0.81).
+Approach phase only; grasp timing and the carry to the bin are not measured.
+
 **Updated conclusion.** On `010000` with the section 25 recipe, the label (human or
 blend) made no detectable difference at alpha = 0.5 or 0.8, and corrections gave no
 established gain over demos-only fine-tuning at either alpha. The earlier finding that
 the blended label is better at alpha = 0.8 (sections 0 and 15) holds for those bases
 and recipes but does not generalise to this one.
 
-## 28. Next
+## 28. 10k base, alpha 0.8, 50 demos — plan (written BEFORE training)
 
-1. **Demo-mix test for the alpha = 0.8 label effect** (section 27): retrain the
-   `tc10k_a08` corrections with the section 15 recipe (the same seeded 50-demo
-   ballast, 4,000 steps), human and blend, from `010000`. No new collection. If the
-   human label falls behind again, the 240-demo mix explains the null; if not, the
-   base is the likelier cause. Write the plan here before training.
+**Why.** Section 27 found no label effect at alpha = 0.8 on `010000`, unlike the two
+earlier alpha = 0.8 rounds. The correction quality check rules out poorer earlier
+corrections (as far as it measures). Left: the demo mix (240 here, 50-100 before) and
+the base. This round changes only the mix.
+
+**Arms.** `tc10k08b_ft_blend`, `tc10k08b_ft_human`: the section 26 corrections
+(`tc10k08_corr_*`, unchanged) + the seeded 50-demo ballast of section 15
+(`tc_ballast.npy`), finetuned from `010000` with the section 15 recipe: 4,000 steps,
+batch 64, lr 2.5e-5 (same schedule as every arm), training seeds 1000 and 2000 (`_s2`).
+Corrections become 64% of the frames (6,849 of 10,701; 27% in section 27). Final checkpoints
+only. No new control: the label comparison does not need one.
+
+**Evaluation.** As section 26: 200 paired episodes, `--seed 123 --two_cam
+--debug_grounding --max_steps 150 --n_action_steps 5`.
+
+- **Primary:** human vs blend, both seeds, paired McNemar. If the demo mix is the cause,
+  the human label is worse (as in sections 0 and 15).
+- **Secondary:** each arm vs the same label with 240 demos (section 27), both seeds.
+- **Reading:** human worse here -> the 240-demo mix hid the label effect. Still no
+  difference -> the base is the likelier cause; then test by training the section 15
+  corrections (`tc_corr_*` + the same 50 demos) onto `010000`.
+
+## 29. Next
+
+1. **Base test for the alpha = 0.8 label effect**, if section 28 is null: train the
+   section 15 corrections (`tc_corr_*` + the same 50 demos, 4,000 steps) onto
+   `010000`. No new collection.
 2. **Base vs correction set** (section 22's open question): train the `010000`
    corrections onto `005000` and the `005000` corrections onto `010000`, same recipe.
    No teleop; separates "the base matters" from "that correction set was better".

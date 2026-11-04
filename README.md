@@ -1471,6 +1471,48 @@ done
 out of 200. Human vs blend p = 0.85; alpha 0.8 vs 0.5 no difference; no arm beats the
 demos-only control. On this base the label does not matter at alpha 0.8 either.
 
+### 10k base, alpha 0.8, 50 demos (does the demo mix hide the label effect?)
+
+Plan in [docs/RESULTS.md](docs/RESULTS.md) section 28. The same alpha 0.8 corrections,
+but mixed with the 50-demo ballast of the earlier two-camera round instead of all 240
+demos, and trained for 4,000 steps as that round was. No new collection.
+
+```bash
+# build (CPU only)
+P=~/Residual_Copilot/.venv/bin/python
+for M in human blend; do
+  $P scripts/merge_npy_datasets.py --inputs logs/data/tc10k08_corr_$M.npy logs/data/tc_ballast.npy \
+    --take all all --seed 0 --output logs/data/tc10k08b_mix_$M.npy
+  $P scripts/npy_to_lerobot.py --input logs/data/tc10k08b_mix_$M.npy \
+    --repo_id local/tc10k08b_mix_$M --root logs/lerobot/tc10k08b_mix_$M \
+    --images --image_names wrist,side --overwrite
+done
+
+# train blend and human at training seeds 1000 and 2000
+for SEED in 1000 2000; do
+  SUF=$([ $SEED = 2000 ] && echo _s2)
+  for ARM in blend human; do
+    OUT=tc10k08b_ft_${ARM}${SUF}
+    lerobot-train \
+      --policy.path=outputs/train/twocam_v1/checkpoints/010000/pretrained_model \
+      --policy.push_to_hub=false \
+      --dataset.repo_id=local/tc10k08b_mix_$ARM --dataset.root=logs/lerobot/tc10k08b_mix_$ARM \
+      --dataset.video_backend=pyav \
+      --rename_map='{"observation.images.wrist": "observation.images.camera1", "observation.images.side": "observation.images.camera2"}' \
+      --policy.optimizer_lr=2.5e-5 --policy.scheduler_decay_lr=2.5e-6 \
+      --batch_size=64 --steps=4000 --save_freq=4000 --num_workers=12 --seed=$SEED \
+      --output_dir=outputs/train/$OUT --job_name=$OUT --policy.device=cuda
+  done
+done
+
+# evaluate (paired with the existing eval200p_ logs)
+COMMON="--num_episodes 200 --seed 123 --two_cam --debug_grounding --max_steps 150 --n_action_steps 5 --headless"
+for M in tc10k08b_ft_blend tc10k08b_ft_human tc10k08b_ft_blend_s2 tc10k08b_ft_human_s2; do
+  python scripts/eval_smolvla.py --checkpoint outputs/train/$M/checkpoints/004000/pretrained_model \
+    $COMMON 2>&1 | tee docs/eval_logs/eval200p_$M.log
+done
+```
+
 ## HuggingFace Collection
 
 All data, models, and assets are hosted as a [HuggingFace collection](https://huggingface.co/collections/shashuo0104/residual-copilot), auto-downloaded on first use.
