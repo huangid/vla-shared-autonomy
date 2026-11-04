@@ -281,6 +281,23 @@ earlier "human label +23" was partly an evaluation draw. Overall: corrections ga
 most a small gain on this base, more reliably with the executed (blend) label, and the
 label choice still makes no detectable difference at alpha = 0.5.
 
+### 10k base, alpha 0.8: the label still makes no difference
+
+The same base and recipe, with 100 corrections collected at alpha = 0.8 (RESULTS
+sections 26-27), on the same 200 paired layouts:
+
+| | seed 1000 | seed 2000 |
+|---|---|---|
+| blend label, alpha 0.8 | 147 | 141 |
+| human label, alpha 0.8 | 139 | 146 |
+
+Human vs blend, both seeds: p = 0.85 (pre-registered primary). Alpha 0.8 vs 0.5 for
+the same label: no difference (p = 0.37 blend, 0.70 human). Neither arm beats its
+demos-only control. So on this base and recipe the label does not matter at either
+alpha. The earlier alpha = 0.8 harm of the human label came from rounds trained with only 50-100
+demos beside the corrections; here 240 demos dilute them to 27% of frames, which is the
+likeliest reason the harm did not appear (a hypothesis, not tested).
+
 ---
 
 ## 5. Things that were wrong, and how they were caught

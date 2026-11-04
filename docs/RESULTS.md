@@ -728,7 +728,68 @@ seed 2000 comparisons.
 - The same-label alpha comparisons need about a 10-point difference to be detectable;
   a null there is weak evidence of no alpha effect.
 
-## 27. Next
+## 27. 10k base, alpha 0.8 — result: the label still makes no difference
+
+Run as planned in section 26 (trained 2026-10-31, evaluated 2026-11-01), four new
+models on the same 200 paired layouts as section 25 (colour sequences checked equal).
+Logs: `docs/eval_logs/eval200p_tc10k08_*.log`.
+
+**Contrast.** The two labels differ on 2,559 of 25,312 training frames (10.1%), median
+label gap 10.7 cm: close to the alpha = 0.8 rounds where the human label hurt (13.4%,
+11.5 cm in section 15; 11.7%, 10.9 cm single-camera), and about twice the alpha = 0.5
+contrast on this base (section 18: 5.7 cm).
+
+| Model | seed 1000 | seed 2000 |
+|---|---|---|
+| base `010000` (section 25) | 130/200 = 65.0% | |
+| control, 240 demos (section 25) | 140 = 70.0% | 136 = 68.0% |
+| alpha 0.5 + corrections, blend (section 25) | 148 = 74.0% | 149 = 74.5% |
+| alpha 0.5 + corrections, human (section 25) | 137 = 68.5% | 153 = 76.5% |
+| **alpha 0.8 + corrections, blend** | **147 = 73.5%** | **141 = 70.5%** |
+| **alpha 0.8 + corrections, human** | **139 = 69.5%** | **146 = 73.0%** |
+
+| Comparison (paired McNemar) | Discordant | p |
+|---|---|---|
+| **human vs blend, alpha 0.8, both seeds (primary)** | 56 / 59 | **0.85** |
+| human vs blend: seed 1000 / seed 2000 | 26/34, 30/25 | 0.37, 0.59 |
+| blend 0.8 vs control, both seeds | 41 / 29 | 0.19 |
+| human 0.8 vs control, both seeds | 65 / 56 | 0.47 |
+| blend 0.8 vs blend 0.5, both seeds | 36 / 45 | 0.37 |
+| human 0.8 vs human 0.5, both seeds | 53 / 58 | 0.70 |
+| blend 0.8 vs base: seed 1000 / seed 2000 | 32/15, 28/17 | 0.019, 0.14 |
+| human 0.8 vs base: seed 1000 / seed 2000 | 37/28, 40/24 | 0.32, 0.060 |
+| human 0.8 seed 1000 vs seed 2000 | 25 / 32 | 0.43 |
+| blend 0.8 seed 1000 vs seed 2000 | 26 / 20 | 0.46 |
+
+First-chunk grounding: blend 82%, 79%; human 78%, 74%.
+
+**What it shows**
+
+- **The primary is null:** human vs blend at alpha = 0.8, p = 0.85, and the seeds point
+  in opposite directions (blend ahead at seed 1000, human ahead at seed 2000). On this
+  base and recipe, the label did not matter at alpha = 0.8 either.
+- **The earlier alpha = 0.8 harm did not appear here**, although the label contrast is
+  similar. Those rounds differed in base (`025000` single-camera, `020000` two-camera)
+  and in recipe (50-100 ballast demos, so corrections were a much larger share of training,
+  against all 240 demos and 6,000 steps with a decaying learning rate here). The
+  likeliest reading is that the human label's harm depends on the recipe: here the
+  corrections are 27% of the frames, diluted by 240 demos. That is a
+  hypothesis; this round does not test it.
+- **Alpha did not change what corrections are worth:** alpha 0.8 vs 0.5, same label,
+  p = 0.37 (blend) and 0.70 (human). Section 26 noted these need about a 10-point
+  difference to detect, so this is weak evidence of no alpha effect. Alpha is also
+  mixed with the amount of correction here (38% vs 14% of steps corrected).
+- **No arm beats its control** (pooled p = 0.19, 0.47). All four are 6-11 points above
+  the base, and blend at seed 1000 is significant against it (p = 0.019), in line with
+  section 25: fine-tuning on this base helps a little, mostly through the extra demos.
+
+**Updated conclusion.** On `010000` with the section 25 recipe, the label (human or
+blend) made no detectable difference at alpha = 0.5 or 0.8, and corrections gave no
+established gain over demos-only fine-tuning at either alpha. The earlier finding that
+the blended label is better at alpha = 0.8 (sections 0 and 15) holds for those bases
+and recipes but does not generalise to this one.
+
+## 28. Next
 
 1. **Base vs correction set** (section 22's open question): train the `010000`
    corrections onto `005000` and the `005000` corrections onto `010000`, same recipe.

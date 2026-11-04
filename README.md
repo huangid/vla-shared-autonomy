@@ -1467,6 +1467,10 @@ done
 - Disk: recordings + datasets + four models need about 7-8 GB; delete each model's
   `training_state/` after it is backed up (it is only needed to resume training).
 
+**Result** (RESULTS section 27): blend 147 / 141, human 139 / 146 (seeds 1000 / 2000)
+out of 200. Human vs blend p = 0.85; alpha 0.8 vs 0.5 no difference; no arm beats the
+demos-only control. On this base the label does not matter at alpha 0.8 either.
+
 ## HuggingFace Collection
 
 All data, models, and assets are hosted as a [HuggingFace collection](https://huggingface.co/collections/shashuo0104/residual-copilot), auto-downloaded on first use.
