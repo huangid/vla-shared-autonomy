@@ -783,6 +783,24 @@ First-chunk grounding: blend 82%, 79%; human 78%, 74%.
   the base, and blend at seed 1000 is significant against it (p = 0.019), in line with
   section 25: fine-tuning on this base helps a little, mostly through the extra demos.
 
+**Why the earlier alpha = 0.8 rounds differ.** Three alpha = 0.8 rounds, compared:
+
+| | Single-camera (section 0) | Two-camera (section 15) | This round |
+|---|---|---|---|
+| Base | v5 `025000` (52%) | `twocam_v1/020000` (71%) | `twocam_v1/010000` (65%) |
+| Demos beside the corrections | 100 | 50 | 240 |
+| Fine-tuning steps | | 4,000 | 6,000, lr decaying |
+| Label contrast (median gap) | 10.9 cm | 11.5 cm | 10.7 cm |
+| Human / blend success | 34.0% / 53.0% | 59.5% / 70.5% | 69.5%, 73.0% / 73.5%, 70.5% |
+| p (human vs blend) | 0.00018 | 0.037 | 0.85 |
+| Evaluation | unpaired, 1 seed | unpaired, 1 seed | paired, 2 seeds |
+
+The label contrast is the same in all three, so it does not explain the change. The
+demo mix is the leading candidate: the demos are identical in both arms, and with 240 of
+them they carry about three quarters of the frames and pull the two arms together. The
+base and the step count also changed, so this round cannot separate them; section 28
+item 1 does.
+
 **Updated conclusion.** On `010000` with the section 25 recipe, the label (human or
 blend) made no detectable difference at alpha = 0.5 or 0.8, and corrections gave no
 established gain over demos-only fine-tuning at either alpha. The earlier finding that
@@ -791,16 +809,21 @@ and recipes but does not generalise to this one.
 
 ## 28. Next
 
-1. **Base vs correction set** (section 22's open question): train the `010000`
+1. **Demo-mix test for the alpha = 0.8 label effect** (section 27): retrain the
+   `tc10k_a08` corrections with the section 15 recipe (the same seeded 50-demo
+   ballast, 4,000 steps), human and blend, from `010000`. No new collection. If the
+   human label falls behind again, the 240-demo mix explains the null; if not, the
+   base is the likelier cause. Write the plan here before training.
+2. **Base vs correction set** (section 22's open question): train the `010000`
    corrections onto `005000` and the `005000` corrections onto `010000`, same recipe.
    No teleop; separates "the base matters" from "that correction set was better".
-2. **Second zero-adjustment run** (`--residual ... --residual_zero`, 200 episodes):
+3. **Second zero-adjustment run** (`--residual ... --residual_zero`, 200 episodes):
    if it again lands well above 142, the residual code path itself changes behaviour
    and should be traced before anything else is built on it.
-3. **Training-seed replication** of the `tc_ft_human` / `tc_ft_blend` arms: each is
+4. **Training-seed replication** of the `tc_ft_human` / `tc_ft_blend` arms: each is
    one training run, and seed variance is not characterised in either study.
-4. **Iterate the residual** (collect corrections with it running, retrain) — the
+5. **Iterate the residual** (collect corrections with it running, retrain) — the
    DAgger step section 16 left out. Section 17 gives no sign it would help.
-5. **Base-checkpoint sweep:** `010000` scored 68% (section 19); `005000` and `015000` were never evaluated.
-6. Smaller: sweep `--n_action_steps`; log block positions in `eval_smolvla.py` to
+6. **Base-checkpoint sweep:** `010000` scored 68% (section 19); `005000` and `015000` were never evaluated.
+7. Smaller: sweep `--n_action_steps`; log block positions in `eval_smolvla.py` to
    test whether failures cluster by table position.
