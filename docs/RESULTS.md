@@ -831,7 +831,9 @@ and recipes but does not generalise to this one.
 **Why.** Section 27 found no label effect at alpha = 0.8 on `010000`, unlike the two
 earlier alpha = 0.8 rounds. The correction quality check rules out poorer earlier
 corrections (as far as it measures). Left: the demo mix (240 here, 50-100 before) and
-the base. This round changes only the mix.
+the base. This round keeps the base and the corrections and changes the fine-tuning
+to the section 15 recipe: the demo mix (240 to 50) and, with it, the step count (6,000
+to 4,000, as section 15). (Clarified 2026-11-06, before any evaluation.)
 
 **Arms.** `tc10k08b_ft_blend`, `tc10k08b_ft_human`: the section 26 corrections
 (`tc10k08_corr_*`, unchanged) + the seeded 50-demo ballast of section 15
@@ -856,6 +858,12 @@ the arms, as section 15's `tc_ballast_only`), training seeds 1000 and 2000.
 - **Reading:** human worse here -> the 240-demo mix hid the label effect. Still no
   difference -> the base is the likelier cause; then test by training the section 15
   corrections (`tc_corr_*` + the same 50 demos) onto `010000`.
+- **Limits.** Two seeds x 200 episodes detect a gap of roughly 7-10 points; the
+  alpha = 0.5 gains on this base were about 5, so a null vs control does not rule out
+  a small gain. An arm beating the control means adding the 100 correction episodes
+  helps: about 60% of their frames are the base driving itself, so that would not
+  isolate the corrective steps. The 50 vs 240 comparison changes demos and steps
+  together.
 
 ## 29. Next
 
