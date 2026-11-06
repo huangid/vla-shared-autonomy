@@ -838,14 +838,21 @@ the base. This round changes only the mix.
 (`tc_ballast.npy`), finetuned from `010000` with the section 15 recipe: 4,000 steps,
 batch 64, lr 2.5e-5 (same schedule as every arm), training seeds 1000 and 2000 (`_s2`).
 Corrections become 64% of the frames (6,849 of 10,701; 27% in section 27). Final checkpoints
-only. No new control: the label comparison does not need one.
+only.
+
+*Control (added 2026-11-06, after training the arms, before any of this round's
+evaluations):* `tc10k08b_demos_only` and `_s2`, the same 50 demos alone
+(`local/tc_ballast`), from `010000`, 1,400 steps (about 23 passes over them, matching
+the arms, as section 15's `tc_ballast_only`), training seeds 1000 and 2000.
 
 **Evaluation.** As section 26: 200 paired episodes, `--seed 123 --two_cam
 --debug_grounding --max_steps 150 --n_action_steps 5`.
 
 - **Primary:** human vs blend, both seeds, paired McNemar. If the demo mix is the cause,
   the human label is worse (as in sections 0 and 15).
-- **Secondary:** each arm vs the same label with 240 demos (section 27), both seeds.
+- **Secondary:** each arm vs the 50-demo control, both seeds (does a label beat the
+  demos alone, as section 15 tested); each arm vs the same label with 240 demos
+  (section 27), both seeds.
 - **Reading:** human worse here -> the 240-demo mix hid the label effect. Still no
   difference -> the base is the likelier cause; then test by training the section 15
   corrections (`tc_corr_*` + the same 50 demos) onto `010000`.

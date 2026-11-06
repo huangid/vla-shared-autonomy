@@ -1513,6 +1513,28 @@ for M in tc10k08b_ft_blend tc10k08b_ft_human tc10k08b_ft_blend_s2 tc10k08b_ft_hu
 done
 ```
 
+Control: the same 50 demos alone, 1,400 steps (as `tc_ballast_only`), after the
+evaluations above so it does not share the GPU with them.
+
+```bash
+for SEED in 1000 2000; do
+  OUT=tc10k08b_demos_only$([ $SEED = 2000 ] && echo _s2)
+  lerobot-train \
+    --policy.path=outputs/train/twocam_v1/checkpoints/010000/pretrained_model \
+    --policy.push_to_hub=false \
+    --dataset.repo_id=local/tc_ballast --dataset.root=logs/lerobot/tc_ballast \
+    --dataset.video_backend=pyav \
+    --rename_map='{"observation.images.wrist": "observation.images.camera1", "observation.images.side": "observation.images.camera2"}' \
+    --policy.optimizer_lr=2.5e-5 --policy.scheduler_decay_lr=2.5e-6 \
+    --batch_size=64 --steps=1400 --save_freq=1400 --num_workers=12 --seed=$SEED \
+    --output_dir=outputs/train/$OUT --job_name=$OUT --policy.device=cuda
+done
+for M in tc10k08b_demos_only tc10k08b_demos_only_s2; do
+  python scripts/eval_smolvla.py --checkpoint outputs/train/$M/checkpoints/001400/pretrained_model \
+    $COMMON 2>&1 | tee docs/eval_logs/eval200p_$M.log
+done
+```
+
 ## HuggingFace Collection
 
 All data, models, and assets are hosted as a [HuggingFace collection](https://huggingface.co/collections/shashuo0104/residual-copilot), auto-downloaded on first use.
