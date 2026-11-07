@@ -945,7 +945,7 @@ alpha = 0.5 corrections, so the only change from section 29 is alpha.
 **Arms.** `tc10k05b_ft_blend`, `tc10k05b_ft_human`: the section 18 corrections
 (`tc10k_corr_*`, 100 episodes, 6,817 frames, unchanged) + the same 50-demo ballast
 (`tc_ballast.npy`), from `010000`, 4,000 steps, batch 64, lr 2.5e-5, training seeds
-1000 and 2000 (`_s2`). Corrections are 64% of the frames, as in section 29. Final
+1000 and 2000 (`_s2`). Corrections are 64% of the frames (6,817 of 10,669), as in section 29; the labels differ on 988 frames. Final
 checkpoints only. Control: the section 29 50-demo controls (135, 133), which do not
 depend on alpha.
 
