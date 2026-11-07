@@ -298,6 +298,24 @@ alpha. The earlier alpha = 0.8 harm of the human label came from rounds trained 
 demos beside the corrections; here 240 demos dilute them to 27% of frames, which is the
 likeliest reason the harm did not appear (a hypothesis, not tested).
 
+### 10k base, alpha 0.8, 50 demos: the label matters, and blend corrections help
+
+The same corrections retrained the way the earlier rounds were (50 demos, 4,000 steps),
+with a matched 50-demo control (RESULTS sections 28-29):
+
+| | seed 1000 | seed 2000 |
+|---|---|---|
+| base | 130 | |
+| control, 50 demos | 135 | 133 |
+| blend label | **147** | **152** |
+| human label | 105 | 99 |
+
+Human vs blend: p = 3e-13 (pre-registered primary). Blend vs the matched control:
+p = 0.0013, the first time corrections beat a matched control. The human arms fail by
+never lifting the target. So the hypothesis above was right: the 240-demo fine-tuning
+hid the harm of `a_H`, while the help of `a_exec` survives either way. Best recipe on
+this base: blend label, few demos.
+
 ---
 
 ## 5. Things that were wrong, and how they were caught

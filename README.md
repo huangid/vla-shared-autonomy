@@ -1535,6 +1535,10 @@ for M in tc10k08b_demos_only tc10k08b_demos_only_s2; do
 done
 ```
 
+**Result** (RESULTS section 29): blend 147 / 152, human 105 / 99, 50-demo control
+135 / 133 (seeds 1000 / 2000) out of 200. Human vs blend p = 3e-13; blend vs control
+p = 0.0013. With few demos the human label hurts and the blend label helps.
+
 ## HuggingFace Collection
 
 All data, models, and assets are hosted as a [HuggingFace collection](https://huggingface.co/collections/shashuo0104/residual-copilot), auto-downloaded on first use.

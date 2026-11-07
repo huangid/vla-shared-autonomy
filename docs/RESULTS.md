@@ -865,21 +865,92 @@ the arms, as section 15's `tc_ballast_only`), training seeds 1000 and 2000.
   isolate the corrective steps. The 50 vs 240 comparison changes demos and steps
   together.
 
-## 29. Next
+## 29. 10k base, alpha 0.8, 50 demos — result: the label matters again, and the blend corrections help
 
-1. **Base test for the alpha = 0.8 label effect**, if section 28 is null: train the
-   section 15 corrections (`tc_corr_*` + the same 50 demos, 4,000 steps) onto
-   `010000`. No new collection.
-2. **Base vs correction set** (section 22's open question): train the `010000`
+Run as planned in section 28 (arms trained 2026-11-04, controls and all six evaluations
+2026-11-06), on the same 200 paired layouts (colour sequences checked equal to every
+`eval200p_` log). Logs: `docs/eval_logs/eval200p_tc10k08b_*.log`.
+
+| Model | seed 1000 | seed 2000 |
+|---|---|---|
+| base `010000` (section 25) | 130/200 = 65.0% | |
+| control, 50 demos, 1,400 steps | 135 = 67.5% | 133 = 66.5% |
+| control, 240 demos (section 25) | 140 = 70.0% | 136 = 68.0% |
+| **corrections + 50 demos, blend** | **147 = 73.5%** | **152 = 76.0%** |
+| **corrections + 50 demos, human** | **105 = 52.5%** | **99 = 49.5%** |
+| corrections + 240 demos, blend (section 27) | 147 = 73.5% | 141 = 70.5% |
+| corrections + 240 demos, human (section 27) | 139 = 69.5% | 146 = 73.0% |
+
+| Comparison (paired McNemar) | Discordant | p |
+|---|---|---|
+| **human vs blend, both seeds (primary)** | 40 / 135 | **3e-13** |
+| human vs blend: seed 1000 / seed 2000 | 21/63, 19/72 | 5e-6, 2e-8 |
+| blend vs 50-demo control, both seeds | 60 / 29 | **0.0013** |
+| blend vs 50-demo control: seed 1000 / seed 2000 | 28/16, 32/13 | 0.096, 0.007 |
+| human vs 50-demo control, both seeds | 62 / 126 | **4e-6** (worse) |
+| blend, 50 vs 240 demos, both seeds | 48 / 37 | 0.28 |
+| human, 50 vs 240 demos, both seeds | 46 / 127 | **6e-10** (worse) |
+| 50-demo control vs 240-demo control, both seeds | 29 / 37 | 0.39 |
+| 50-demo control vs base: seed 1000 / seed 2000 | 27/22, 23/20 | 0.57, 0.76 |
+| blend vs base: seed 1000 / seed 2000 | 32/15, 33/11 | 0.019, 0.0010 |
+| human seed 1000 vs 2000; blend; control | 36/30, 15/20, 19/17 | 0.54, 0.50, 0.87 |
+
+Failures: the human arms fail by *never lifting the target* (85 and 87 of 200, against
+43-44 for blend and 53 for each control); distractor binning is unchanged (9-12 for all).
+First-chunk grounding: blend 85%, 78%; human 70%, 74%; control 81%, 80%.
+
+**What it shows**
+
+- **The primary is decisive:** with 50 demos, the human label is 21-26.5 points
+  worse than the blend label at both training seeds (pooled p = 3e-13). This reproduces
+  sections 0 and 15 on the base where section 27 saw nothing.
+- **The demo mix was the cause of section 27's null.** Same base, same corrections; only
+  the fine-tuning changed (240 to 50 demos, 6,000 to 4,000 steps). The human arm lost
+  17-23.5 points going from 240 to 50 demos (p = 6e-10); the blend arm did not change
+  (p = 0.28). The demos dilute the harm of `a_H`. They do not dilute the help of
+  `a_exec`, which was already there at 240.
+- **How `a_H` hurts:** grasping, not choosing. Grounding barely moves, but "never lifted"
+  doubles: the model learns the operator's overshoot (pushes about 15 cm past the arm,
+  section 27) as a position target and misses the grasp.
+- **Corrections with the blend label beat the matched control:** +6 and +9.5 points
+  (12 and 19 episodes),
+  pooled p = 0.0013, which survives a Bonferroni correction over the four secondary
+  comparisons (0.005). This is the first round in which corrections beat a matched
+  no-correction control. Blend also beats the base at both seeds (+8.5, +11 points; p = 0.019,
+  0.0010) and the 240-demo control (pooled 57/34, p = 0.021, not pre-registered).
+- **Demos alone do nothing measurable:** 50 or 240, the controls sit 1.5-5 points above
+  the base, not significant. The gain in the blend arms comes from the corrections.
+- **Training seeds agree** for every arm (p = 0.50-0.87), unlike section 25.
+
+**Caveats.** Two things changed between sections 27 and 29 (demo count and steps), so
+which one diluted the human label is not separated; "the 240-demo fine-tuning" is the
+cause, not the 240 demos alone. As section 28 noted, "corrections help" means adding the
+100 correction episodes helps; about 60% of their frames are the base driving itself.
+One base, one operator.
+
+**Updated conclusion.** At alpha = 0.8, training on the raw human action `a_H` hurts the
+policy and training on the executed action `a_exec` helps it, whenever the corrections
+are a large share of the fine-tuning data (64% here). Diluted by many demos, the harm
+disappears and the help remains. On `010000` the best recipe is corrections with the
+blend label and few demos: 147 and 152 of 200, against 130 for the base and 133-140 for
+every no-correction control.
+
+## 30. Next
+
+1. **Steps vs demos** (section 29 caveat): corrections + 240 demos at 4,000 steps, human
+   and blend, separates the demo count from the step count. No new collection.
+2. **Alpha 0.5 with 50 demos:** retrain the `tc10k_a05` corrections with the section 28
+   recipe. Tests whether alpha matters once the corrections are not diluted.
+3. **Base vs correction set** (section 22's open question): train the `010000`
    corrections onto `005000` and the `005000` corrections onto `010000`, same recipe.
    No teleop; separates "the base matters" from "that correction set was better".
-3. **Second zero-adjustment run** (`--residual ... --residual_zero`, 200 episodes):
+4. **Second zero-adjustment run** (`--residual ... --residual_zero`, 200 episodes):
    if it again lands well above 142, the residual code path itself changes behaviour
    and should be traced before anything else is built on it.
-4. **Training-seed replication** of the `tc_ft_human` / `tc_ft_blend` arms: each is
+5. **Training-seed replication** of the `tc_ft_human` / `tc_ft_blend` arms: each is
    one training run, and seed variance is not characterised in either study.
-5. **Iterate the residual** (collect corrections with it running, retrain) — the
+6. **Iterate the residual** (collect corrections with it running, retrain) — the
    DAgger step section 16 left out. Section 17 gives no sign it would help.
-6. **Base-checkpoint sweep:** `010000` scored 68% (section 19); `005000` and `015000` were never evaluated.
-7. Smaller: sweep `--n_action_steps`; log block positions in `eval_smolvla.py` to
+7. **Base-checkpoint sweep:** `010000` scored 68% (section 19); `005000` and `015000` were never evaluated.
+8. Smaller: sweep `--n_action_steps`; log block positions in `eval_smolvla.py` to
    test whether failures cluster by table position.
