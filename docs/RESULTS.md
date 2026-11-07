@@ -935,22 +935,43 @@ disappears and the help remains. On `010000` the best recipe is corrections with
 blend label and few demos: 147 and 152 of 200, against 130 for the base and 133-140 for
 every no-correction control.
 
-## 30. Next
+## 30. 10k base, alpha 0.5, 50 demos — plan (written BEFORE building or training)
+
+**Why.** Section 29 found that at alpha = 0.8 the human label hurts once the corrections
+are not diluted by 240 demos. At alpha = 0.5 on `010000` only the 240-demo recipe was run
+(section 25: no label difference). This round applies the section 28 recipe to the
+alpha = 0.5 corrections, so the only change from section 29 is alpha.
+
+**Arms.** `tc10k05b_ft_blend`, `tc10k05b_ft_human`: the section 18 corrections
+(`tc10k_corr_*`, 100 episodes, 6,817 frames, unchanged) + the same 50-demo ballast
+(`tc_ballast.npy`), from `010000`, 4,000 steps, batch 64, lr 2.5e-5, training seeds
+1000 and 2000 (`_s2`). Corrections are 64% of the frames, as in section 29. Final
+checkpoints only. Control: the section 29 50-demo controls (135, 133), which do not
+depend on alpha.
+
+**Evaluation.** As section 28.
+
+- **Primary:** human vs blend, both seeds, paired McNemar. The single-camera alpha = 0.5
+  rounds (section 0, including corrections-only) predict no difference; the label gap is
+  half that at alpha = 0.8 (5.7 cm vs 10.7 cm).
+- **Secondary:** each arm vs the 50-demo control, both seeds; each arm vs the same label
+  at alpha = 0.8 (section 29), both seeds.
+- Same limits as section 28.
+
+## 31. Next
 
 1. **Steps vs demos** (section 29 caveat): corrections + 240 demos at 4,000 steps, human
    and blend, separates the demo count from the step count. No new collection.
-2. **Alpha 0.5 with 50 demos:** retrain the `tc10k_a05` corrections with the section 28
-   recipe. Tests whether alpha matters once the corrections are not diluted.
-3. **Base vs correction set** (section 22's open question): train the `010000`
+2. **Base vs correction set** (section 22's open question): train the `010000`
    corrections onto `005000` and the `005000` corrections onto `010000`, same recipe.
    No teleop; separates "the base matters" from "that correction set was better".
-4. **Second zero-adjustment run** (`--residual ... --residual_zero`, 200 episodes):
+3. **Second zero-adjustment run** (`--residual ... --residual_zero`, 200 episodes):
    if it again lands well above 142, the residual code path itself changes behaviour
    and should be traced before anything else is built on it.
-5. **Training-seed replication** of the `tc_ft_human` / `tc_ft_blend` arms: each is
+4. **Training-seed replication** of the `tc_ft_human` / `tc_ft_blend` arms: each is
    one training run, and seed variance is not characterised in either study.
-6. **Iterate the residual** (collect corrections with it running, retrain) — the
+5. **Iterate the residual** (collect corrections with it running, retrain) — the
    DAgger step section 16 left out. Section 17 gives no sign it would help.
-7. **Base-checkpoint sweep:** `010000` scored 68% (section 19); `005000` and `015000` were never evaluated.
-8. Smaller: sweep `--n_action_steps`; log block positions in `eval_smolvla.py` to
+6. **Base-checkpoint sweep:** `010000` scored 68% (section 19); `005000` and `015000` were never evaluated.
+7. Smaller: sweep `--n_action_steps`; log block positions in `eval_smolvla.py` to
    test whether failures cluster by table position.
