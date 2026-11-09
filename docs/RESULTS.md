@@ -14,8 +14,8 @@ distractors that must stay out of the bin. Success requires the named block binn
 and neither distractor binned. Cameras: gripper-mounted wrist (320x240) and
 square-on side (480x360, 44 deg down); no front camera.
 
-**Current base policy:** `outputs/train/twocam_v1/checkpoints/020000/pretrained_model`
-(240 demos).
+**Base policies:** `twocam_v1/020000` (sections 14-17) and `twocam_v1/010000` (sections
+18-31; `005000` in 20-21), all trained on the same 240 demos.
 
 **Evaluation protocol.** `--num_episodes 200 --seed 123 --two_cam --n_action_steps 5
 --max_steps 150 --debug_grounding`; every model faces the same 200 layouts, compared
@@ -24,6 +24,37 @@ with the paired McNemar exact test. The simulator is not repeatable between runs
 until 2026-10-27 the "same 200 episodes" shared only the target-colour sequence — block
 layouts diverged between models after the first episode or two.** McNemar p-values stay
 valid; the comparisons are effectively unpaired.
+
+## Final conclusions (as of 2026-11-09)
+
+The question: fine-tune the VLA on the raw human action `a_H` or on the executed blend
+`a_exec = alpha * a_R + (1 - alpha) * a_H`? The complete picture on `010000` (two seeds,
+200 paired layouts, sections 25-31), out of 200:
+
+| | 240 demos | 50 demos (matched control 135 / 133) |
+|---|---|---|
+| alpha 0.8, blend | 147 / 141 | **147 / 152** |
+| alpha 0.8, human | 139 / 146 | **105 / 99** |
+| alpha 0.5, blend | 148 / 149 | 146 / 139 |
+| alpha 0.5, human | 137 / 153 | 133 / 144 |
+
+Base 130; 240-demo controls 140 / 136.
+
+1. **The label matters only at alpha = 0.8, and only when corrections are a large share
+   of the fine-tuning data.** There `a_H` is 21-26.5 points worse than `a_exec`
+   (p = 3e-13, section 29); the same pattern held on two earlier bases (sections 0, 15).
+   With 240 demos (section 27), or at alpha = 0.5 (sections 0, 25, 31), no difference.
+2. **`a_H` hurts by teaching the operator's overshoot**: at alpha = 0.8 the operator
+   pushes about 15 cm past the arm to move it (section 27), and the human-label models
+   fail to lift the block twice as often.
+3. **`a_exec` never hurt** in any round, and with alpha = 0.8 corrections and 50 demos it
+   beat a matched no-correction control (+6, +9.5 points; p = 0.0013, section 29). At
+   alpha = 0.5 its gain was smaller and not significant (section 31).
+4. **Recommendation:** label with the executed action. It is safe at every alpha and
+   demo mix tested, and it is the only label that measurably improved success.
+
+Limits: simulation, one task, one operator, one policy (SmolVLA). Section 29 changed
+demos and steps together, so which one dilutes the harm is not separated.
 
 ---
 
@@ -958,7 +989,65 @@ depend on alpha.
   at alpha = 0.8 (section 29), both seeds.
 - Same limits as section 28.
 
-## 31. Next
+## 31. 10k base, alpha 0.5, 50 demos — result: the label does not matter at alpha 0.5
+
+Run as planned in section 30 (trained and evaluated 2026-11-08), on the same 200 paired
+layouts (colour sequences checked equal). Logs: `docs/eval_logs/eval200p_tc10k05b_*.log`.
+
+*Incident.* The first evaluation of `tc10k05b_ft_blend` stopped after 96 of 200 episodes
+with no error in its log (kept as `eval200p_tc10k05b_ft_blend.partial.log`); it was rerun
+from episode 1 on 2026-11-09 with the same command, and only the complete rerun is
+analysed. On the first 96 episodes the two runs scored 75 and 73 and agreed on 82,
+within the run-to-run variation of section 17.
+
+| Model | seed 1000 | seed 2000 |
+|---|---|---|
+| base `010000` (section 25) | 130/200 = 65.0% | |
+| control, 50 demos (section 29) | 135 = 67.5% | 133 = 66.5% |
+| **alpha 0.5 + 50 demos, blend** | **146 = 73.0%** | **139 = 69.5%** |
+| **alpha 0.5 + 50 demos, human** | **133 = 66.5%** | **144 = 72.0%** |
+| alpha 0.8 + 50 demos, blend (section 29) | 147 = 73.5% | 152 = 76.0% |
+| alpha 0.8 + 50 demos, human (section 29) | 105 = 52.5% | 99 = 49.5% |
+| alpha 0.5 + 240 demos, blend (section 25) | 148 = 74.0% | 149 = 74.5% |
+| alpha 0.5 + 240 demos, human (section 25) | 137 = 68.5% | 153 = 76.5% |
+
+| Comparison (paired McNemar) | Discordant | p |
+|---|---|---|
+| **human vs blend, both seeds (primary)** | 48 / 56 | **0.49** |
+| human vs blend: seed 1000 / seed 2000 | 19/32, 29/24 | 0.092, 0.58 |
+| blend vs 50-demo control, both seeds | 55 / 38 | 0.097 |
+| human vs 50-demo control, both seeds | 66 / 57 | 0.47 |
+| human, alpha 0.5 vs 0.8 (50 demos), both seeds | 125 / 52 | **4e-8** |
+| blend, alpha 0.5 vs 0.8 (50 demos), both seeds | 36 / 50 | 0.16 |
+| blend, 50 vs 240 demos (alpha 0.5), both seeds | 37 / 49 | 0.24 |
+| human, 50 vs 240 demos (alpha 0.5), both seeds | 49 / 62 | 0.26 |
+| blend vs base: seed 1000 / seed 2000 | 33/17, 33/24 | 0.033, 0.29 |
+| human seed 1000 vs 2000; blend | 23/34, 26/19 | 0.19, 0.37 |
+
+Failures: "never lifted the target" 46 and 50 (blend), 55 and 43 (human), against 85-87
+for the alpha = 0.8 human arms. First-chunk grounding 74-79% for all four.
+
+**What it shows**
+
+- **The primary is null:** at alpha = 0.5 with 50 demos, human and blend do not differ
+  (p = 0.49), and the seeds point in opposite directions. Undiluted corrections at
+  alpha = 0.5 do not make the human label harmful, matching single-camera round 1
+  (corrections only, section 0).
+- **The human-label harm is an alpha = 0.8 effect.** Same base, demos, steps and
+  operator; only alpha differs: the human arm is 14-22.5 points better at alpha = 0.5
+  than at 0.8 (p = 4e-8), and it no longer fails to lift the block more often than
+  blend. The smaller label gap at alpha = 0.5 (5.7 vs 10.7 cm) leaves too little
+  overshoot to learn.
+- **Blend corrections at alpha = 0.5 help less clearly than at 0.8:** +5.5 and +3 points
+  over the matched control, pooled p = 0.097 (not significant), against +6 and +9.5,
+  p = 0.0013, at alpha = 0.8. The direct blend 0.5 vs 0.8 comparison is not significant
+  (p = 0.16), so this round does not show that alpha = 0.8 corrections are better for
+  the blend label; only that their gain over control is clearer.
+- **The demo mix does not matter at alpha = 0.5:** 50 vs 240 demos, p = 0.24 (blend),
+  0.26 (human).
+- Training seeds agree for both arms (p = 0.19, 0.37).
+
+## 32. Next
 
 1. **Steps vs demos** (section 29 caveat): corrections + 240 demos at 4,000 steps, human
    and blend, separates the demo count from the step count. No new collection.

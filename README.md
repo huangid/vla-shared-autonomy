@@ -1581,6 +1581,10 @@ done
 
 - Check the GPU is free first (`nvidia-smi`): training needs well over 10 GB.
 
+**Result** (RESULTS section 31): blend 146 / 139, human 133 / 144, 50-demo control
+135 / 133 (seeds 1000 / 2000) out of 200. Human vs blend p = 0.49: at alpha 0.5 the label
+does not matter even with few demos. See "Final conclusions" at the top of RESULTS.
+
 ## HuggingFace Collection
 
 All data, models, and assets are hosted as a [HuggingFace collection](https://huggingface.co/collections/shashuo0104/residual-copilot), auto-downloaded on first use.

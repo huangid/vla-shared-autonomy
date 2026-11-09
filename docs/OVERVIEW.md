@@ -316,6 +316,15 @@ never lifting the target. So the hypothesis above was right: the 240-demo fine-t
 hid the harm of `a_H`, while the help of `a_exec` survives either way. Best recipe on
 this base: blend label, few demos.
 
+### 10k base, alpha 0.5, 50 demos: the label does not matter at alpha 0.5
+
+The alpha 0.5 corrections with the same 50-demo recipe (RESULTS sections 30-31): blend
+146 / 139, human 133 / 144, control 135 / 133. Human vs blend p = 0.49. The human label
+at alpha 0.5 is far better than at alpha 0.8 (p = 4e-8), so its harm is an alpha 0.8
+effect. Blend corrections at alpha 0.5 are +5.5 and +3 points over control, not
+significant (p = 0.097). The full picture is in the "Final conclusions" box at the top
+of RESULTS.
+
 ---
 
 ## 5. Things that were wrong, and how they were caught
